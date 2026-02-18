@@ -6,7 +6,10 @@ load_dotenv()
 
 # Telegram Settings
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ALLOWED_USER_IDS = [int(id) for id in os.getenv('ALLOWED_USER_IDS', '').split(',') if id]
+ALLOWED_USER_IDS = [
+    int(id) for id in os.getenv(
+        'ALLOWED_USER_IDS',
+        '').split(',') if id]
 
 # Elasticsearch Settings
 ELASTIC_HOST = os.getenv('ELASTIC_HOST', 'http://8.215.8.118:9200')
