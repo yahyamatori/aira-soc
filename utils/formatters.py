@@ -9,7 +9,6 @@ def escape_markdown(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
     
-    # Karakter yang perlu di-escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
     text = text.replace('\\', '\\\\')
     text = text.replace('_', '\\_')
     text = text.replace('*', '\\*')
@@ -51,7 +50,6 @@ def get_attack_description(attack_type: str) -> str:
     return descriptions.get(attack_type, f'⚠️ {attack_type.replace("_", " ").title()}')
 
 
-
 def get_server_info(attack: Dict[str, Any]) -> Dict:
     """
     Mendapatkan informasi lengkap server yang diserang
@@ -62,38 +60,31 @@ def get_server_info(attack: Dict[str, Any]) -> Dict:
         'full_info': 'Unknown Server'
     }
     
-    # Ambil hostname langsung dari field yang sudah kita tambahkan
+    # Ambil hostname dari attack data
     if 'hostname' in attack and attack['hostname'] and attack['hostname'] != 'Unknown':
         server_info['hostname'] = attack['hostname']
-        server_info['full_info'] = attack['hostname']
-        return server_info
     
-    # Fallback: coba ambil dari field asli
-    if 'agent.hostname' in attack:
-        server_info['hostname'] = attack['agent.hostname']
-        server_info['full_info'] = attack['agent.hostname']
-    elif 'host.name' in attack:
-        server_info['hostname'] = attack['host.name']
-        server_info['full_info'] = attack['host.name']
-    elif 'host' in attack and isinstance(attack['host'], dict):
-        host = attack['host']
-        if 'name' in host:
-            server_info['hostname'] = host['name']
-            server_info['full_info'] = host['name']
-            if 'ip' in host:
-                ip_field = host['ip']
-                if isinstance(ip_field, list):
-                    server_info['host_ip'] = ip_field[0] if ip_field else None
-                else:
-                    server_info['host_ip'] = ip_field
+    # Ambil host_ip dari attack data
+    if 'host_ip' in attack and attack['host_ip']:
+        server_info['host_ip'] = attack['host_ip']
     
-    # Format dengan IP jika ada
-    if server_info['hostname'] != 'Unknown' and server_info['host_ip']:
-        server_info['full_info'] = f"{server_info['hostname']} ({server_info['host_ip']})"
-    elif server_info['hostname'] != 'Unknown':
-        server_info['full_info'] = server_info['hostname']
+    # Format full info
+    if server_info['hostname'] != 'Unknown':
+        if server_info['host_ip']:
+            if isinstance(server_info['host_ip'], list):
+                ip_str = server_info['host_ip'][0] if server_info['host_ip'] else ''
+            else:
+                ip_str = str(server_info['host_ip'])
+            
+            if ip_str and ip_str != 'None':
+                server_info['full_info'] = f"{server_info['hostname']} ({ip_str})"
+            else:
+                server_info['full_info'] = server_info['hostname']
+        else:
+            server_info['full_info'] = server_info['hostname']
     
     return server_info
+
 
 def format_log_list(logs: List[Dict], limit: int = 5) -> str:
     """Format daftar log untuk ditampilkan di Telegram"""
@@ -413,4 +404,3 @@ def format_help() -> str:
 /realtime - Aktifkan update realtime
 /stop - Matikan mode realtime
 """
-

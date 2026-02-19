@@ -137,13 +137,13 @@ class AttackAnalyzer:
 
             # Ekstrak IP
             src_ip = self._extract_ip(log, 'source.ip') or \
-                    self._extract_ip(log, 'client.ip') or \
-                    self._extract_ip(log, 'src_ip') or \
-                    self._extract_ip_from_message(message)
+                     self._extract_ip(log, 'client.ip') or \
+                     self._extract_ip(log, 'src_ip') or \
+                     self._extract_ip_from_message(message)
 
             dst_ip = self._extract_ip(log, 'destination.ip') or \
-                    self._extract_ip(log, 'server.ip') or \
-                    self._extract_ip(log, 'dst_ip')
+                     self._extract_ip(log, 'server.ip') or \
+                     self._extract_ip(log, 'dst_ip')
 
             # Ekstrak port
             src_port = log.get('source.port') or log.get('src_port') or self._extract_port(message, 'src')
@@ -155,8 +155,9 @@ class AttackAnalyzer:
             if not attack_type or not src_ip:
                 return None
 
-            # === AMBIL HOSTNAME DARI BERBAGAI SUMBER ===
+            # AMBIL HOSTNAME DARI LOG
             hostname = None
+            host_ip = None
             
             # PRIORITAS 1: agent.hostname (dari log Anda)
             if 'agent.hostname' in log:
@@ -168,13 +169,24 @@ class AttackAnalyzer:
             if not hostname and 'host.name' in log:
                 hostname = log['host.name']
             elif not hostname and 'host' in log and isinstance(log['host'], dict):
-                hostname = log['host'].get('name') or log['host'].get('hostname')
+                host = log['host']
+                hostname = host.get('name') or host.get('hostname')
+                if 'ip' in host:
+                    host_ip = host['ip']
+                    if isinstance(host_ip, list):
+                        host_ip = host_ip[0] if host_ip else None
             
             # PRIORITAS 3: host.hostname
             if not hostname and 'host.hostname' in log:
                 hostname = log['host.hostname']
+            
+            # PRIORITAS 4: host.ip
+            if not host_ip and 'host.ip' in log:
+                host_ip = log['host.ip']
+                if isinstance(host_ip, list):
+                    host_ip = host_ip[0] if host_ip else None
 
-            # RETURN field untuk database + hostname (dengan prefix)
+            # Return data serangan LENGKAP
             return {
                 # Field untuk database
                 'timestamp': timestamp,
@@ -188,58 +200,16 @@ class AttackAnalyzer:
                 'count': 1,
                 'raw_data': str(log)[:500],
                 
-                # TAMBAHKAN HOSTNAME UNTUK FORMATTER (tidak disimpan ke DB)
-                'hostname': hostname or 'Unknown'
+                # Field tambahan untuk formatters
+                'hostname': hostname or 'Unknown',
+                'host_ip': host_ip,
+                'agent_hostname': log.get('agent.hostname'),
+                'host_name': log.get('host.name')
             }
+
         except Exception as e:
             logger.debug(f"Error extracting attack info: {e}")
             return None
-
-    def _extract_host_info(self, log: Dict) -> Dict:
-        """
-        Ekstrak informasi host/server - FUNGSI TERPISAH UNTUK FORMETTERS
-        Fungsi ini DIPANGGIL oleh formatters, bukan untuk database
-        """
-        host_info = {
-            'hostname': None,
-            'host_ip': None,
-            'agent_hostname': None,
-            'full_info': 'Unknown Server'
-        }
-        
-        # Cek agent.hostname (dari log Anda)
-        if 'agent.hostname' in log:
-            host_info['agent_hostname'] = log['agent.hostname']
-            host_info['hostname'] = log['agent.hostname']
-        
-        # Cek host.name
-        if 'host.name' in log:
-            host_info['hostname'] = log['host.name']
-        elif 'host' in log and isinstance(log['host'], dict):
-            host_info['hostname'] = log['host'].get('name') or log['host'].get('hostname')
-            if 'ip' in log['host']:
-                ip_field = log['host']['ip']
-                if isinstance(ip_field, list):
-                    host_info['host_ip'] = ip_field[0] if ip_field else None
-                else:
-                    host_info['host_ip'] = ip_field
-        
-        # Cek host.ip
-        if not host_info['host_ip'] and 'host.ip' in log:
-            host_info['host_ip'] = log['host.ip']
-            if isinstance(host_info['host_ip'], list):
-                host_info['host_ip'] = host_info['host_ip'][0] if host_info['host_ip'] else None
-        
-        # Format full info
-        if host_info['hostname']:
-            if host_info['host_ip']:
-                host_info['full_info'] = f"{host_info['hostname']} ({host_info['host_ip']})"
-            else:
-                host_info['full_info'] = host_info['hostname']
-        elif host_info['agent_hostname']:
-            host_info['full_info'] = host_info['agent_hostname']
-        
-        return host_info
 
     def _extract_ip(self, log: Dict, field: str) -> str:
         """Ekstrak IP dari field tertentu"""
@@ -357,32 +327,9 @@ class AttackAnalyzer:
                     'count': attack['count'],
                     'threshold': threshold,
                     'severity': attack['severity'],
-                    'timestamp': attack['timestamp']
+                    'timestamp': attack['timestamp'],
+                    'hostname': attack.get('hostname', 'Unknown'),
+                    'host_ip': attack.get('host_ip')
                 })
 
         return alerts
-
-    def get_server_stats(self, minutes: int = 60) -> Dict:
-        """Mendapatkan statistik per server"""
-        attacks = self.analyze_period(minutes=minutes)
-        
-        server_stats = {}
-        
-        for attack in attacks:
-            # Gunakan dst_ip sebagai fallback
-            server_key = attack.get('dst_ip', 'Unknown')
-            if server_key not in server_stats:
-                server_stats[server_key] = {
-                    'total': 0,
-                    'attackers': set(),
-                    'by_type': {}
-                }
-            
-            server_stats[server_key]['total'] += attack['count']
-            server_stats[server_key]['attackers'].add(attack['src_ip'])
-            
-            attack_type = attack['attack_type']
-            server_stats[server_key]['by_type'][attack_type] = \
-                server_stats[server_key]['by_type'].get(attack_type, 0) + attack['count']
-        
-        return server_stats

@@ -189,21 +189,30 @@ async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         es = ElasticConnector()
         analyzer = AttackAnalyzer(es)
         
-        # Deteksi serangan - ini akan mengembalikan attacks DENGAN field hostname
+        # Deteksi serangan
         attacks = analyzer.analyze_period(minutes=minutes)
         
-        # Simpan ke database
+        # Simpan ke database (HAPUS field hostname sebelum simpan)
         db = DatabaseManager()
         if attacks:
-            # Hapus field hostname sebelum simpan ke DB (karena tidak ada di model)
             db_attacks = []
             for attack in attacks:
-                db_attack = attack.copy()
-                db_attack.pop('hostname', None)  # Hapus field hostname
+                db_attack = {
+                    'timestamp': attack['timestamp'],
+                    'attack_type': attack['attack_type'],
+                    'src_ip': attack['src_ip'],
+                    'dst_ip': attack.get('dst_ip'),
+                    'src_port': attack.get('src_port'),
+                    'dst_port': attack.get('dst_port'),
+                    'protocol': attack.get('protocol', 'tcp'),
+                    'severity': attack['severity'],
+                    'count': attack['count'],
+                    'raw_data': attack.get('raw_data', '')
+                }
                 db_attacks.append(db_attack)
             db.save_attack_logs_bulk(db_attacks)
         
-        # Format response - attacks MASIH memiliki field hostname
+        # Format response
         from utils.formatters import format_attack_summary
         response = format_attack_summary(attacks, periode)
         
@@ -221,8 +230,6 @@ async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await msg.edit_text(f"❌ Error analisis: {str(e)}")
         logger.error(f"Error in lihatattack: {e}", exc_info=True)
-# Command: /topattackers
-
 
 @restricted
 async def topattackers_command(
