@@ -11,3 +11,8 @@ jalankan start.sh jika semua telah selesai diinstall dan dijalankan
 menjalankan di server vps dengan perintah python3 main.py
 gunakan start.sh untuk menjalankannya agar lebih mudah
 minimal requirement python adalah python3
+
+# Jalankan ulang bot
+cd /root/aira-soc
+source venv/bin/activate
+python main.py
