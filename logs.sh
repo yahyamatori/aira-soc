@@ -1,4 +1,3 @@
-cat > logs.sh << 'EOF'
 #!/bin/bash
 # Script untuk melihat log bot secara real-time
 
@@ -11,6 +10,3 @@ elif [ "$1" == "-n" ]; then
 else
     tail -n 50 bot.log
 fi
-EOF
-
-chmod +x logs.sh
