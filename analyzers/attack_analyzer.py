@@ -135,15 +135,15 @@ class AttackAnalyzer:
                 except:
                     timestamp = datetime.now()
 
-            # Ekstrak IP - coba berbagai field yang mungkin
+            # Ekstrak IP
             src_ip = self._extract_ip(log, 'source.ip') or \
-                     self._extract_ip(log, 'client.ip') or \
-                     self._extract_ip(log, 'src_ip') or \
-                     self._extract_ip_from_message(message)
+                    self._extract_ip(log, 'client.ip') or \
+                    self._extract_ip(log, 'src_ip') or \
+                    self._extract_ip_from_message(message)
 
             dst_ip = self._extract_ip(log, 'destination.ip') or \
-                     self._extract_ip(log, 'server.ip') or \
-                     self._extract_ip(log, 'dst_ip')
+                    self._extract_ip(log, 'server.ip') or \
+                    self._extract_ip(log, 'dst_ip')
 
             # Ekstrak port
             src_port = log.get('source.port') or log.get('src_port') or self._extract_port(message, 'src')
@@ -155,8 +155,28 @@ class AttackAnalyzer:
             if not attack_type or not src_ip:
                 return None
 
-            # RETURN HANYA FIELD UNTUK DATABASE - TIDAK ADA PREFIX _
-            db_fields = {
+            # === AMBIL HOSTNAME DARI BERBAGAI SUMBER ===
+            hostname = None
+            
+            # PRIORITAS 1: agent.hostname (dari log Anda)
+            if 'agent.hostname' in log:
+                hostname = log['agent.hostname']
+            elif 'agent' in log and isinstance(log['agent'], dict):
+                hostname = log['agent'].get('hostname')
+            
+            # PRIORITAS 2: host.name
+            if not hostname and 'host.name' in log:
+                hostname = log['host.name']
+            elif not hostname and 'host' in log and isinstance(log['host'], dict):
+                hostname = log['host'].get('name') or log['host'].get('hostname')
+            
+            # PRIORITAS 3: host.hostname
+            if not hostname and 'host.hostname' in log:
+                hostname = log['host.hostname']
+
+            # RETURN field untuk database + hostname (dengan prefix)
+            return {
+                # Field untuk database
                 'timestamp': timestamp,
                 'attack_type': attack_type,
                 'src_ip': src_ip,
@@ -166,11 +186,11 @@ class AttackAnalyzer:
                 'protocol': log.get('network.protocol', 'tcp'),
                 'severity': severity,
                 'count': 1,
-                'raw_data': str(log)[:500]
+                'raw_data': str(log)[:500],
+                
+                # TAMBAHKAN HOSTNAME UNTUK FORMATTER (tidak disimpan ke DB)
+                'hostname': hostname or 'Unknown'
             }
-            
-            return db_fields
-
         except Exception as e:
             logger.debug(f"Error extracting attack info: {e}")
             return None

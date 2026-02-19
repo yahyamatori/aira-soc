@@ -51,79 +51,62 @@ def get_attack_description(attack_type: str) -> str:
     return descriptions.get(attack_type, f'⚠️ {attack_type.replace("_", " ").title()}')
 
 
-def get_server_info(attack: Dict[str, Any], log: Dict = None) -> Dict:
+def get_server_info(attack: Dict[str, Any]) -> Dict:
     """
     Mendapatkan informasi lengkap server yang diserang
-    Args:
-        attack: Data serangan dari analyzer (bisa juga berupa log asli)
-        log: Log asli dari Elasticsearch (opsional)
+    Berdasarkan struktur log Anda yang menggunakan agent.hostname
     """
     server_info = {
         'hostname': 'Unknown',
         'host_ip': None,
+        'agent_hostname': None,
         'destination_ip': None,
-        'destination_domain': None,
         'full_info': 'Unknown Server'
     }
     
-    # Gunakan log asli jika ada, atau attack data
-    data = log if log else attack
+    # PRIORITAS 1: agent.hostname (dari log Anda yang asli)
+    if 'agent.hostname' in attack:
+        server_info['agent_hostname'] = attack['agent.hostname']
+        server_info['hostname'] = attack['agent.hostname']
+        server_info['full_info'] = attack['agent.hostname']
+        return server_info
     
-    # CEK agent.hostname (dari log Anda)
-    if 'agent.hostname' in data:
-        server_info['hostname'] = data['agent.hostname']
+    # PRIORITAS 2: agent.hostname dalam object agent
+    if 'agent' in attack and isinstance(attack['agent'], dict):
+        agent = attack['agent']
+        if 'hostname' in agent:
+            server_info['agent_hostname'] = agent['hostname']
+            server_info['hostname'] = agent['hostname']
+            server_info['full_info'] = agent['hostname']
+            return server_info
     
-    # CEK host.name
-    if server_info['hostname'] == 'Unknown' and 'host.name' in data:
-        server_info['hostname'] = data['host.name']
+    # PRIORITAS 3: host.name
+    if 'host.name' in attack:
+        server_info['hostname'] = attack['host.name']
+        server_info['full_info'] = attack['host.name']
+        return server_info
     
-    # CEK object host
-    if server_info['hostname'] == 'Unknown' and 'host' in data and isinstance(data['host'], dict):
-        host = data['host']
-        server_info['hostname'] = host.get('name') or host.get('hostname') or 'Unknown'
-        if 'ip' in host:
-            ip_field = host['ip']
-            if isinstance(ip_field, list):
-                server_info['host_ip'] = ip_field[0] if ip_field else None
-            else:
-                server_info['host_ip'] = ip_field
+    # PRIORITAS 4: object host
+    if 'host' in attack and isinstance(attack['host'], dict):
+        host = attack['host']
+        if 'name' in host:
+            server_info['hostname'] = host['name']
+            server_info['full_info'] = host['name']
+            if 'ip' in host:
+                ip_field = host['ip']
+                if isinstance(ip_field, list):
+                    server_info['host_ip'] = ip_field[0] if ip_field else None
+                else:
+                    server_info['host_ip'] = ip_field
+            return server_info
     
-    # CEK host.ip
-    if not server_info['host_ip'] and 'host.ip' in data:
-        server_info['host_ip'] = data['host.ip']
-        if isinstance(server_info['host_ip'], list):
-            server_info['host_ip'] = server_info['host_ip'][0] if server_info['host_ip'] else None
-    
-    # Destination info
-    if 'destination.ip' in data:
-        server_info['destination_ip'] = data['destination.ip']
-    elif 'dest_ip' in data:
-        server_info['destination_ip'] = data['dest_ip']
-    
-    if 'destination' in data and isinstance(data['destination'], dict):
-        dest = data['destination']
-        if not server_info['destination_ip']:
-            server_info['destination_ip'] = dest.get('ip')
-        server_info['destination_domain'] = dest.get('domain')
-    
-    # Format full info
-    if server_info['hostname'] and server_info['hostname'] != 'Unknown':
-        if server_info['host_ip']:
-            if isinstance(server_info['host_ip'], list):
-                ip_str = server_info['host_ip'][0] if server_info['host_ip'] else ''
-            else:
-                ip_str = str(server_info['host_ip'])
-            
-            if ip_str and ip_str != 'None':
-                server_info['full_info'] = f"{server_info['hostname']} ({ip_str})"
-            else:
-                server_info['full_info'] = server_info['hostname']
-        else:
-            server_info['full_info'] = server_info['hostname']
-    elif server_info['destination_ip']:
-        server_info['full_info'] = f"Destination: {server_info['destination_ip']}"
-    elif server_info['destination_domain']:
-        server_info['full_info'] = f"Domain: {server_info['destination_domain']}"
+    # PRIORITAS 5: destination ip
+    if 'destination.ip' in attack:
+        server_info['destination_ip'] = attack['destination.ip']
+        server_info['full_info'] = f"Destination: {attack['destination.ip']}"
+    elif 'dest_ip' in attack:
+        server_info['destination_ip'] = attack['dest_ip']
+        server_info['full_info'] = f"Destination: {attack['dest_ip']}"
     
     return server_info
 
@@ -156,7 +139,7 @@ def format_log_list(logs: List[Dict], limit: int = 5) -> str:
     return response
 
 
-def format_attack_summary(attacks: List[Dict[str, Any]], periode: str, original_logs: List[Dict] = None) -> str:
+def format_attack_summary(attacks: List[Dict[str, Any]], periode: str) -> str:
     """Format ringkasan serangan dengan informasi semua server"""
     if not attacks:
         return f"📭 Tidak ada serangan terdeteksi dalam {periode} terakhir."
@@ -174,29 +157,17 @@ def format_attack_summary(attacks: List[Dict[str, Any]], periode: str, original_
         'by_severity': defaultdict(int)
     })
     
-    # Map untuk menyimpan hostname per serangan (gunakan original_logs jika ada)
-    attack_host_map = {}
-    
-    # Jika ada original_logs, kita bisa mapping
-    if original_logs and len(original_logs) == len(attacks):
-        for i, (attack, log) in enumerate(zip(attacks, original_logs)):
-            attack_host_map[i] = get_server_info(attack, log)
-    
     # Untuk tracking attacker per server
     attacker_server_map = defaultdict(lambda: defaultdict(int))
 
-    for idx, attack in enumerate(attacks):
+    for attack in attacks:
         attack_type = attack.get('attack_type', 'unknown')
         severity = attack.get('severity', 'medium')
         count = attack.get('count', 1)
         src_ip = attack.get('src_ip', 'Unknown')
         
-        # Dapatkan informasi server dari map jika ada
-        if idx in attack_host_map:
-            server_info = attack_host_map[idx]
-        else:
-            server_info = get_server_info(attack)
-        
+        # Dapatkan informasi server dari attack
+        server_info = get_server_info(attack)
         server_key = server_info['full_info']
         
         # Update statistik per server
@@ -458,3 +429,4 @@ def format_help() -> str:
 /realtime - Aktifkan update realtime
 /stop - Matikan mode realtime
 """
+

@@ -51,43 +51,31 @@ def get_attack_description(attack_type: str) -> str:
     return descriptions.get(attack_type, f'⚠️ {attack_type.replace("_", " ").title()}')
 
 
+
 def get_server_info(attack: Dict[str, Any]) -> Dict:
     """
     Mendapatkan informasi lengkap server yang diserang
-    Berdasarkan struktur log Anda yang menggunakan agent.hostname
     """
     server_info = {
         'hostname': 'Unknown',
         'host_ip': None,
-        'agent_hostname': None,
-        'destination_ip': None,
         'full_info': 'Unknown Server'
     }
     
-    # PRIORITAS 1: agent.hostname (dari log Anda yang asli)
+    # Ambil hostname langsung dari field yang sudah kita tambahkan
+    if 'hostname' in attack and attack['hostname'] and attack['hostname'] != 'Unknown':
+        server_info['hostname'] = attack['hostname']
+        server_info['full_info'] = attack['hostname']
+        return server_info
+    
+    # Fallback: coba ambil dari field asli
     if 'agent.hostname' in attack:
-        server_info['agent_hostname'] = attack['agent.hostname']
         server_info['hostname'] = attack['agent.hostname']
         server_info['full_info'] = attack['agent.hostname']
-        return server_info
-    
-    # PRIORITAS 2: agent.hostname dalam object agent
-    if 'agent' in attack and isinstance(attack['agent'], dict):
-        agent = attack['agent']
-        if 'hostname' in agent:
-            server_info['agent_hostname'] = agent['hostname']
-            server_info['hostname'] = agent['hostname']
-            server_info['full_info'] = agent['hostname']
-            return server_info
-    
-    # PRIORITAS 3: host.name
-    if 'host.name' in attack:
+    elif 'host.name' in attack:
         server_info['hostname'] = attack['host.name']
         server_info['full_info'] = attack['host.name']
-        return server_info
-    
-    # PRIORITAS 4: object host
-    if 'host' in attack and isinstance(attack['host'], dict):
+    elif 'host' in attack and isinstance(attack['host'], dict):
         host = attack['host']
         if 'name' in host:
             server_info['hostname'] = host['name']
@@ -98,18 +86,14 @@ def get_server_info(attack: Dict[str, Any]) -> Dict:
                     server_info['host_ip'] = ip_field[0] if ip_field else None
                 else:
                     server_info['host_ip'] = ip_field
-            return server_info
     
-    # PRIORITAS 5: destination ip
-    if 'destination.ip' in attack:
-        server_info['destination_ip'] = attack['destination.ip']
-        server_info['full_info'] = f"Destination: {attack['destination.ip']}"
-    elif 'dest_ip' in attack:
-        server_info['destination_ip'] = attack['dest_ip']
-        server_info['full_info'] = f"Destination: {attack['dest_ip']}"
+    # Format dengan IP jika ada
+    if server_info['hostname'] != 'Unknown' and server_info['host_ip']:
+        server_info['full_info'] = f"{server_info['hostname']} ({server_info['host_ip']})"
+    elif server_info['hostname'] != 'Unknown':
+        server_info['full_info'] = server_info['hostname']
     
     return server_info
-
 
 def format_log_list(logs: List[Dict], limit: int = 5) -> str:
     """Format daftar log untuk ditampilkan di Telegram"""

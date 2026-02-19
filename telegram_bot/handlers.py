@@ -159,6 +159,7 @@ async def lihatlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error mengambil log: {str(e)}")
         logger.error(f"Error in lihatlog: {e}", exc_info=True)
 
+
 @restricted
 async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lihat ringkasan serangan"""
@@ -188,20 +189,23 @@ async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         es = ElasticConnector()
         analyzer = AttackAnalyzer(es)
         
-        # Ambil logs asli untuk informasi hostname
-        original_logs = es.get_recent_logs(minutes=minutes, size=10000)
-        
-        # Deteksi serangan
+        # Deteksi serangan - ini akan mengembalikan attacks DENGAN field hostname
         attacks = analyzer.analyze_period(minutes=minutes)
         
         # Simpan ke database
         db = DatabaseManager()
         if attacks:
-            db.save_attack_logs_bulk(attacks)
+            # Hapus field hostname sebelum simpan ke DB (karena tidak ada di model)
+            db_attacks = []
+            for attack in attacks:
+                db_attack = attack.copy()
+                db_attack.pop('hostname', None)  # Hapus field hostname
+                db_attacks.append(db_attack)
+            db.save_attack_logs_bulk(db_attacks)
         
-        # Format response dengan original_logs untuk hostname
+        # Format response - attacks MASIH memiliki field hostname
         from utils.formatters import format_attack_summary
-        response = format_attack_summary(attacks, periode, original_logs)
+        response = format_attack_summary(attacks, periode)
         
         keyboard = [
             [

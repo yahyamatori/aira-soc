@@ -136,97 +136,87 @@ async def lihatlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             limit = int(context.args[0])
             limit = min(limit, 50)  # Maksimal 50 log
-        except BaseException:
+        except:
             pass
-
+    
     msg = await update.message.reply_text(f"🔍 Mengambil {limit} log terbaru...")
-
+    
     try:
         es = ElasticConnector()
         logs = es.get_recent_logs(minutes=60, size=limit)
-
+        
         if not logs:
             await msg.edit_text("📭 Tidak ada log dalam 1 jam terakhir.")
             return
-
-        response = f"📋 **{len(logs)} Log Terbaru:**\n\n"
-        for i, log in enumerate(logs[:limit], 1):
-            timestamp = log.get('@timestamp', 'N/A')[:19]  # Ambil sampai detik
-            message = log.get('message', 'No message')[:100]
-            response += f"{i}. `{timestamp}` - {message}\n"
-
-            # Batasi panjang response
-            if len(response) > 3500:
-                response += "\n...(dipotong, terlalu panjang)"
-                break
-
+        
+        # Gunakan formatter yang baru
+        from utils.formatters import format_log_list
+        response = format_log_list(logs, limit)
+        
         await msg.edit_text(response, parse_mode='Markdown')
-
+        
     except Exception as e:
         await msg.edit_text(f"❌ Error mengambil log: {str(e)}")
-
-# Command: /lihatattack
-
+        logger.error(f"Error in lihatlog: {e}", exc_info=True)
 
 @restricted
-async def lihatattack_command(
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE):
+async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lihat ringkasan serangan"""
     # Parse periode (default 1 jam)
     periode = "1h"
     if context.args:
         periode = context.args[0]
-
+    
     # Konversi periode ke menit
-    minutes = 60  # default 1 jam
+    minutes = 60
     if periode.endswith('h'):
         minutes = int(periode[:-1]) * 60
     elif periode.endswith('m'):
         minutes = int(periode[:-1])
     else:
         try:
-            minutes = int(periode) * 60  # asumsi dalam jam
-        except BaseException:
+            minutes = int(periode) * 60
+        except:
             minutes = 60
-
-    minutes = min(minutes, 24 * 60)  # Maksimal 24 jam
-
+    
+    minutes = min(minutes, 24 * 60)
+    
     msg = await update.message.reply_text(f"🔍 Menganalisis serangan {periode} terakhir...")
-
+    
     try:
         # Analisis dari Elasticsearch
         es = ElasticConnector()
         analyzer = AttackAnalyzer(es)
-
+        
+        # Ambil logs asli untuk informasi hostname
+        original_logs = es.get_recent_logs(minutes=minutes, size=10000)
+        
         # Deteksi serangan
         attacks = analyzer.analyze_period(minutes=minutes)
-
+        
         # Simpan ke database
         db = DatabaseManager()
         if attacks:
             db.save_attack_logs_bulk(attacks)
-
-        # Format response
-        response = format_attack_summary(attacks, periode)
-
-        # Tambahkan tombol untuk aksi lanjutan
+        
+        # Format response dengan original_logs untuk hostname
+        from utils.formatters import format_attack_summary
+        response = format_attack_summary(attacks, periode, original_logs)
+        
         keyboard = [
             [
-                InlineKeyboardButton(
-                    "🔄 Refresh",
-                    callback_data=f"refresh_{periode}"),
-                InlineKeyboardButton(
-                    "📊 Top Attackers",
-                    callback_data=f"top_{periode}")]]
+                InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{periode}"),
+                InlineKeyboardButton("📊 Top Attackers", callback_data=f"top_{periode}")
+            ]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
+        
         await msg.edit_text(response, parse_mode='Markdown', reply_markup=reply_markup)
         db.close()
-
+        
     except Exception as e:
         await msg.edit_text(f"❌ Error analisis: {str(e)}")
-
+        logger.error(f"Error in lihatattack: {e}", exc_info=True)
 # Command: /topattackers
 
 
