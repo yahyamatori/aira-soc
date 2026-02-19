@@ -399,3 +399,60 @@ class AttackAnalyzer:
         except Exception as e:
             logger.error(f"Error in analyze_period_from_db: {e}")
             return []
+    def analyze_period(self, minutes: int = 60, from_db: bool = False) -> List[Dict[str, Any]]:
+    """
+    Analisis serangan dalam periode waktu tertentu
+    from_db: Jika True, baca dari database (untuk testing)
+    """
+    if from_db:
+        return self._analyze_period_from_db(minutes)
+    else:
+        return self._analyze_period_from_es(minutes)
+
+def _analyze_period_from_es(self, minutes: int = 60) -> List[Dict[str, Any]]:
+    # Kode yang sudah ada untuk Elasticsearch
+    try:
+        logs = self.es.get_recent_logs(minutes=minutes, size=10000)
+        # ... sisanya sama ...
+    except Exception as e:
+        logger.error(f"Error in analyze_period from ES: {e}")
+        return []
+
+def _analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
+    """
+    Analisis serangan dari database (untuk testing)
+    """
+    try:
+        from core.database import DatabaseManager
+        from core.models import AttackLog
+        
+        db = DatabaseManager()
+        time_threshold = datetime.now() - timedelta(minutes=minutes)
+        
+        attacks_db = db.db.query(AttackLog).filter(
+            AttackLog.timestamp >= time_threshold
+        ).all()
+        
+        attacks = []
+        for att in attacks_db:
+            attack_data = {
+                'timestamp': att.timestamp,
+                'attack_type': att.attack_type,
+                'src_ip': att.src_ip,
+                'dst_ip': att.dst_ip,
+                'src_port': att.src_port,
+                'dst_port': att.dst_port,
+                'protocol': att.protocol,
+                'severity': att.severity,
+                'count': att.count,
+                'raw_data': att.raw_data
+            }
+            attacks.append(attack_data)
+        
+        aggregated = self._aggregate_attacks(attacks)
+        db.close()
+        return aggregated
+        
+    except Exception as e:
+        logger.error(f"Error in analyze_period from DB: {e}")
+        return []
