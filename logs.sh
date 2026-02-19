@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+
+>>>>>>> ff5d537 (fix scheduller)
 #!/bin/bash
 # Script untuk melihat log bot secara real-time
 
