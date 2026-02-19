@@ -355,3 +355,47 @@ class AttackAnalyzer:
         
         logger.info(f"Total alerts generated: {len(alerts)}")
         return alerts
+    def analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
+        """
+        Analisis serangan dari database (untuk testing)
+        """
+        try:
+            from core.database import DatabaseManager
+            from core.models import AttackLog
+            from sqlalchemy import and_
+            
+            db = DatabaseManager()
+            time_threshold = datetime.now() - timedelta(minutes=minutes)
+            
+            # Query database
+            attacks_db = db.db.query(AttackLog).filter(
+                AttackLog.timestamp >= time_threshold
+            ).all()
+            
+            # Konversi ke format yang sama dengan Elasticsearch
+            attacks = []
+            for att in attacks_db:
+                attack_data = {
+                    'timestamp': att.timestamp,
+                    'attack_type': att.attack_type,
+                    'src_ip': att.src_ip,
+                    'dst_ip': att.dst_ip,
+                    'src_port': att.src_port,
+                    'dst_port': att.dst_port,
+                    'protocol': att.protocol,
+                    'severity': att.severity,
+                    'count': att.count,
+                    'raw_data': att.raw_data,
+                    'hostname': 'Database Test'
+                }
+                attacks.append(attack_data)
+            
+            # Aggregasi
+            aggregated = self._aggregate_attacks(attacks)
+            logger.info(f"Analyzed {len(attacks_db)} logs from DB, found {len(aggregated)} attack patterns")
+            db.close()
+            return aggregated
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_period_from_db: {e}")
+            return []
