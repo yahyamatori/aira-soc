@@ -400,14 +400,14 @@ class AttackAnalyzer:
             logger.error(f"Error in analyze_period_from_db: {e}")
             return []
     def analyze_period(self, minutes: int = 60, from_db: bool = False) -> List[Dict[str, Any]]:
-    """
-    Analisis serangan dalam periode waktu tertentu
-    from_db: Jika True, baca dari database (untuk testing)
-    """
-    if from_db:
-        return self._analyze_period_from_db(minutes)
-    else:
-        return self._analyze_period_from_es(minutes)
+        """
+        Analisis serangan dalam periode waktu tertentu
+        from_db: Jika True, baca dari database (untuk testing)
+        """
+        if from_db:
+            return self._analyze_period_from_db(minutes)
+        else:
+            return self._analyze_period_from_es(minutes)
 
 def _analyze_period_from_es(self, minutes: int = 60) -> List[Dict[str, Any]]:
     # Kode yang sudah ada untuk Elasticsearch
