@@ -1,6 +1,6 @@
 # aira-soc
 # aira-soc
-Tools ini berguna untuk menampilkan serangan , memonitor serangan pada server linux atau wondows yang menggunakan
+Tools ini berguna untuk menampilkan serangan , memonitor serangan pada server linux atau windows yang menggunakan
 agent filebeat dan elasticsearch
 buat environmentnya
 install dependency
