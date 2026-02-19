@@ -94,8 +94,18 @@ class AttackAnalyzer:
             ]
         }
 
-    def analyze_period(self, minutes: int = 60) -> List[Dict[str, Any]]:
-        """Analisis serangan dalam periode waktu tertentu"""
+    def analyze_period(self, minutes: int = 60, from_db: bool = False) -> List[Dict[str, Any]]:
+        """
+        Analisis serangan dalam periode waktu tertentu
+        from_db: Jika True, baca dari database (untuk testing)
+        """
+        if from_db:
+            return self._analyze_period_from_db(minutes)
+        else:
+            return self._analyze_period_from_es(minutes)
+
+    def _analyze_period_from_es(self, minutes: int = 60) -> List[Dict[str, Any]]:
+        """Analisis serangan dari Elasticsearch"""
         try:
             # Ambil logs dari Elasticsearch
             logs = self.es.get_recent_logs(minutes=minutes, size=10000)
@@ -118,7 +128,49 @@ class AttackAnalyzer:
             return aggregated
 
         except Exception as e:
-            logger.error(f"Error in analyze_period: {e}")
+            logger.error(f"Error in analyze_period from ES: {e}")
+            return []
+
+    def _analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
+        """
+        Analisis serangan dari database (untuk testing)
+        """
+        try:
+            from core.database import DatabaseManager
+            from core.models import AttackLog
+            
+            db = DatabaseManager()
+            time_threshold = datetime.now() - timedelta(minutes=minutes)
+            
+            attacks_db = db.db.query(AttackLog).filter(
+                AttackLog.timestamp >= time_threshold
+            ).all()
+            
+            attacks = []
+            for att in attacks_db:
+                attack_data = {
+                    'timestamp': att.timestamp,
+                    'attack_type': att.attack_type,
+                    'src_ip': att.src_ip,
+                    'dst_ip': att.dst_ip,
+                    'src_port': att.src_port,
+                    'dst_port': att.dst_port,
+                    'protocol': att.protocol,
+                    'severity': att.severity,
+                    'count': att.count,
+                    'raw_data': att.raw_data,
+                    'hostname': 'Database Test'
+                }
+                attacks.append(attack_data)
+            
+            # Aggregasi
+            aggregated = self._aggregate_attacks(attacks)
+            logger.info(f"Analyzed {len(attacks_db)} logs from DB, found {len(aggregated)} attack patterns")
+            db.close()
+            return aggregated
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_period_from_db: {e}")
             return []
 
     def _extract_attack_info(self, log: Dict) -> Dict[str, Any]:
@@ -355,104 +407,3 @@ class AttackAnalyzer:
         
         logger.info(f"Total alerts generated: {len(alerts)}")
         return alerts
-    def analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
-        """
-        Analisis serangan dari database (untuk testing)
-        """
-        try:
-            from core.database import DatabaseManager
-            from core.models import AttackLog
-            from sqlalchemy import and_
-            
-            db = DatabaseManager()
-            time_threshold = datetime.now() - timedelta(minutes=minutes)
-            
-            # Query database
-            attacks_db = db.db.query(AttackLog).filter(
-                AttackLog.timestamp >= time_threshold
-            ).all()
-            
-            # Konversi ke format yang sama dengan Elasticsearch
-            attacks = []
-            for att in attacks_db:
-                attack_data = {
-                    'timestamp': att.timestamp,
-                    'attack_type': att.attack_type,
-                    'src_ip': att.src_ip,
-                    'dst_ip': att.dst_ip,
-                    'src_port': att.src_port,
-                    'dst_port': att.dst_port,
-                    'protocol': att.protocol,
-                    'severity': att.severity,
-                    'count': att.count,
-                    'raw_data': att.raw_data,
-                    'hostname': 'Database Test'
-                }
-                attacks.append(attack_data)
-            
-            # Aggregasi
-            aggregated = self._aggregate_attacks(attacks)
-            logger.info(f"Analyzed {len(attacks_db)} logs from DB, found {len(aggregated)} attack patterns")
-            db.close()
-            return aggregated
-            
-        except Exception as e:
-            logger.error(f"Error in analyze_period_from_db: {e}")
-            return []
-    def analyze_period(self, minutes: int = 60, from_db: bool = False) -> List[Dict[str, Any]]:
-        """
-        Analisis serangan dalam periode waktu tertentu
-        from_db: Jika True, baca dari database (untuk testing)
-        """
-        if from_db:
-            return self._analyze_period_from_db(minutes)
-        else:
-            return self._analyze_period_from_es(minutes)
-
-def _analyze_period_from_es(self, minutes: int = 60) -> List[Dict[str, Any]]:
-    # Kode yang sudah ada untuk Elasticsearch
-    try:
-        logs = self.es.get_recent_logs(minutes=minutes, size=10000)
-        # ... sisanya sama ...
-    except Exception as e:
-        logger.error(f"Error in analyze_period from ES: {e}")
-        return []
-
-def _analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
-    """
-    Analisis serangan dari database (untuk testing)
-    """
-    try:
-        from core.database import DatabaseManager
-        from core.models import AttackLog
-        
-        db = DatabaseManager()
-        time_threshold = datetime.now() - timedelta(minutes=minutes)
-        
-        attacks_db = db.db.query(AttackLog).filter(
-            AttackLog.timestamp >= time_threshold
-        ).all()
-        
-        attacks = []
-        for att in attacks_db:
-            attack_data = {
-                'timestamp': att.timestamp,
-                'attack_type': att.attack_type,
-                'src_ip': att.src_ip,
-                'dst_ip': att.dst_ip,
-                'src_port': att.src_port,
-                'dst_port': att.dst_port,
-                'protocol': att.protocol,
-                'severity': att.severity,
-                'count': att.count,
-                'raw_data': att.raw_data
-            }
-            attacks.append(attack_data)
-        
-        aggregated = self._aggregate_attacks(attacks)
-        db.close()
-        return aggregated
-        
-    except Exception as e:
-        logger.error(f"Error in analyze_period from DB: {e}")
-        return []
