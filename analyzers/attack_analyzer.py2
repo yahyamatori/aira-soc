@@ -135,7 +135,7 @@ class AttackAnalyzer:
                 except:
                     timestamp = datetime.now()
 
-            # Ekstrak IP - coba berbagai field yang mungkin
+            # Ekstrak IP
             src_ip = self._extract_ip(log, 'source.ip') or \
                      self._extract_ip(log, 'client.ip') or \
                      self._extract_ip(log, 'src_ip') or \
@@ -149,17 +149,46 @@ class AttackAnalyzer:
             src_port = log.get('source.port') or log.get('src_port') or self._extract_port(message, 'src')
             dst_port = log.get('destination.port') or log.get('dst_port') or self._extract_port(message, 'dst')
 
-            # Ekstrak informasi host - untuk formatters, tidak disimpan di DB
-            host_info = self._extract_host_info(log)
-
             # Deteksi tipe serangan
             attack_type, severity = self._detect_attack_type(message)
 
             if not attack_type or not src_ip:
                 return None
 
-            # Return hanya field yang ada di model AttackLog
+            # AMBIL HOSTNAME DARI LOG
+            hostname = None
+            host_ip = None
+            
+            # PRIORITAS 1: agent.hostname (dari log Anda)
+            if 'agent.hostname' in log:
+                hostname = log['agent.hostname']
+            elif 'agent' in log and isinstance(log['agent'], dict):
+                hostname = log['agent'].get('hostname')
+            
+            # PRIORITAS 2: host.name
+            if not hostname and 'host.name' in log:
+                hostname = log['host.name']
+            elif not hostname and 'host' in log and isinstance(log['host'], dict):
+                host = log['host']
+                hostname = host.get('name') or host.get('hostname')
+                if 'ip' in host:
+                    host_ip = host['ip']
+                    if isinstance(host_ip, list):
+                        host_ip = host_ip[0] if host_ip else None
+            
+            # PRIORITAS 3: host.hostname
+            if not hostname and 'host.hostname' in log:
+                hostname = log['host.hostname']
+            
+            # PRIORITAS 4: host.ip
+            if not host_ip and 'host.ip' in log:
+                host_ip = log['host.ip']
+                if isinstance(host_ip, list):
+                    host_ip = host_ip[0] if host_ip else None
+
+            # Return data serangan LENGKAP
             return {
+                # Field untuk database
                 'timestamp': timestamp,
                 'attack_type': attack_type,
                 'src_ip': src_ip,
@@ -169,58 +198,21 @@ class AttackAnalyzer:
                 'protocol': log.get('network.protocol', 'tcp'),
                 'severity': severity,
                 'count': 1,
-                'raw_data': str(log)[:500]
-                # HAPUS host_name, host_ip, destination_ip dari sini
+                'raw_data': str(log)[:500],
+                
+                # Field tambahan untuk formatters
+                'hostname': hostname or 'Unknown',
+                'host_ip': host_ip,
+                'agent_hostname': log.get('agent.hostname'),
+                'host_name': log.get('host.name')
             }
 
         except Exception as e:
             logger.debug(f"Error extracting attack info: {e}")
             return None
 
-    def _extract_host_info(self, log: Dict) -> Dict:
-        """Ekstrak informasi host/server yang diserang - UNTUK FORMATTERS, BUKAN DB"""
-        host_info = {
-            'host_name': None,
-            'host_ip': None,
-            'destination_ip': None,
-            'full_info': 'Unknown Server'
-        }
-        
-        # Ambil dari field host (struktur ECS)
-        if 'host' in log and isinstance(log['host'], dict):
-            host = log['host']
-            host_info['host_name'] = host.get('name') or host.get('hostname')
-            if 'ip' in host:
-                ip_field = host['ip']
-                if isinstance(ip_field, list):
-                    host_info['host_ip'] = ip_field[0] if ip_field else None
-                else:
-                    host_info['host_ip'] = ip_field
-        
-        # Field langsung
-        if not host_info['host_name']:
-            host_info['host_name'] = log.get('host.name') or log.get('host.hostname')
-        
-        # Destination IP
-        if 'destination' in log and isinstance(log['destination'], dict):
-            host_info['destination_ip'] = log['destination'].get('ip')
-        if not host_info['destination_ip']:
-            host_info['destination_ip'] = log.get('destination.ip') or log.get('dest_ip')
-        
-        # Format full info
-        if host_info['host_name'] and host_info['host_name'] != 'Unknown':
-            if host_info['host_ip']:
-                host_info['full_info'] = f"{host_info['host_name']} ({host_info['host_ip']})"
-            else:
-                host_info['full_info'] = host_info['host_name']
-        elif host_info['destination_ip']:
-            host_info['full_info'] = f"Destination: {host_info['destination_ip']}"
-        
-        return host_info
-
     def _extract_ip(self, log: Dict, field: str) -> str:
         """Ekstrak IP dari field tertentu"""
-        # Handle nested fields like 'source.ip'
         parts = field.split('.')
         value = log
         for part in parts:
@@ -329,9 +321,6 @@ class AttackAnalyzer:
         for attack in attacks:
             threshold = thresholds.get(attack['attack_type'], 999999)
             if attack['count'] > threshold:
-                # Ambil host info untuk alert
-                # Karena kita tidak menyimpan host_info di DB, kita perlu mengambil dari log asli
-                # Tapi untuk alert, kita bisa menggunakan data yang ada
                 alerts.append({
                     'type': attack['attack_type'],
                     'ip': attack['src_ip'],
@@ -339,36 +328,8 @@ class AttackAnalyzer:
                     'threshold': threshold,
                     'severity': attack['severity'],
                     'timestamp': attack['timestamp'],
-                    # Tambahkan field opsional untuk formatters
-                    'host_name': None,  # Akan diisi oleh formatters dari data lain
-                    'host_ip': None,
-                    'destination_ip': attack.get('dst_ip')
+                    'hostname': attack.get('hostname', 'Unknown'),
+                    'host_ip': attack.get('host_ip')
                 })
 
         return alerts
-
-    def get_server_stats(self, minutes: int = 60) -> Dict:
-        """Mendapatkan statistik per server"""
-        attacks = self.analyze_period(minutes=minutes)
-        
-        server_stats = {}
-        
-        for attack in attacks:
-            # Untuk statistik, kita tidak punya host_name di attack data
-            # Gunakan dst_ip sebagai pengganti
-            server_key = attack.get('dst_ip', 'Unknown')
-            if server_key not in server_stats:
-                server_stats[server_key] = {
-                    'total': 0,
-                    'attackers': set(),
-                    'by_type': {}
-                }
-            
-            server_stats[server_key]['total'] += attack['count']
-            server_stats[server_key]['attackers'].add(attack['src_ip'])
-            
-            attack_type = attack['attack_type']
-            server_stats[server_key]['by_type'][attack_type] = \
-                server_stats[server_key]['by_type'].get(attack_type, 0) + attack['count']
-        
-        return server_stats
