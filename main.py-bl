@@ -23,13 +23,11 @@ logger = setup_logging()
 
 async def post_init(application: Application):
     """Fungsi yang dijalankan setelah bot inisialisasi"""
-    print("🔥 POST_INIT DIPANGGIL!", file=sys.stderr)           # <-- TAMBAHKAN INI
     logger.info("Bot started successfully!")
     
     # Start scheduler untuk monitoring realtime
-    print("📞 Memanggil start_scheduler...", file=sys.stderr)   # <-- TAMBAHKAN INI
     start_scheduler(application)
-    print("✅ start_scheduler selesai dipanggil", file=sys.stderr)  # <-- TAMBAHKAN INI
+
 async def main():
     """Main function"""
     logger.info("Starting SOC Telegram Bot...")
