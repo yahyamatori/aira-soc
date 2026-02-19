@@ -308,50 +308,50 @@ class AttackAnalyzer:
         return list(aggregated.values())
 
     def check_thresholds(self, minutes: int = 5) -> List[Dict]:
-    """
-    Cek apakah ada serangan yang melebihi threshold
-    """
-    # Ambil serangan dalam periode tertentu
-    attacks = self.analyze_period(minutes=minutes)
-    
-    if not attacks:
-        logger.debug("No attacks found in period")
-        return []
-    
-    # Ambil threshold dari database
-    from core.database import DatabaseManager
-    db = DatabaseManager()
-    thresholds = db.get_thresholds()
-    db.close()
-    
-    logger.debug(f"Thresholds from DB: {thresholds}")
-    logger.debug(f"Attacks found: {len(attacks)}")
-    
-    alerts = []
-    
-    for attack in attacks:
-        attack_type = attack.get('attack_type', 'unknown')
-        attack_count = attack.get('count', 1)
-        src_ip = attack.get('src_ip', 'Unknown')
+        """
+        Cek apakah ada serangan yang melebihi threshold
+        """
+        # Ambil serangan dalam periode tertentu
+        attacks = self.analyze_period(minutes=minutes)
         
-        # Dapatkan threshold untuk tipe serangan ini
-        threshold = thresholds.get(attack_type, 999999)
+        if not attacks:
+            logger.debug("No attacks found in period")
+            return []
         
-        # LOGIKA PERBANDINGAN: jika count >= threshold, buat alert
-        if attack_count >= threshold:
-            logger.info(f"⚠️ THRESHOLD EXCEEDED: {attack_type} from {src_ip} ({attack_count} >= {threshold})")
+        # Ambil threshold dari database
+        from core.database import DatabaseManager
+        db = DatabaseManager()
+        thresholds = db.get_thresholds()
+        db.close()
+        
+        logger.debug(f"Thresholds from DB: {thresholds}")
+        logger.debug(f"Attacks found: {len(attacks)}")
+        
+        alerts = []
+        
+        for attack in attacks:
+            attack_type = attack.get('attack_type', 'unknown')
+            attack_count = attack.get('count', 1)
+            src_ip = attack.get('src_ip', 'Unknown')
             
-            alert = {
-                'type': attack_type,
-                'ip': src_ip,
-                'count': attack_count,
-                'threshold': threshold,
-                'severity': attack.get('severity', 'medium'),
-                'timestamp': attack.get('timestamp', datetime.now())
-            }
-            alerts.append(alert)
-        else:
-            logger.debug(f"Normal: {attack_type} from {src_ip} ({attack_count} < {threshold})")
-    
-    logger.info(f"Total alerts generated: {len(alerts)}")
-    return alerts
+            # Dapatkan threshold untuk tipe serangan ini
+            threshold = thresholds.get(attack_type, 999999)
+            
+            # LOGIKA PERBANDINGAN: jika count >= threshold, buat alert
+            if attack_count >= threshold:
+                logger.info(f"⚠️ THRESHOLD EXCEEDED: {attack_type} from {src_ip} ({attack_count} >= {threshold})")
+                
+                alert = {
+                    'type': attack_type,
+                    'ip': src_ip,
+                    'count': attack_count,
+                    'threshold': threshold,
+                    'severity': attack.get('severity', 'medium'),
+                    'timestamp': attack.get('timestamp', datetime.now())
+                }
+                alerts.append(alert)
+            else:
+                logger.debug(f"Normal: {attack_type} from {src_ip} ({attack_count} < {threshold})")
+        
+        logger.info(f"Total alerts generated: {len(alerts)}")
+        return alerts
