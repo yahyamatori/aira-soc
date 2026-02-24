@@ -12,7 +12,7 @@ ALLOWED_USER_IDS = [
         '').split(',') if id]
 
 # Elasticsearch Settings
-ELASTIC_HOST = os.getenv('ELASTIC_HOST', 'http://8.215.8.118:9200')
+ELASTIC_HOST = os.getenv('ELASTIC_HOST', 'http://:9200')
 ELASTIC_USER = os.getenv('ELASTIC_USER')
 ELASTIC_PASSWORD = os.getenv('ELASTIC_PASSWORD')
 ELASTIC_INDEX_PATTERN = os.getenv('ELASTIC_INDEX_PATTERN', 'logs-*')
