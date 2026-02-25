@@ -1,6 +1,6 @@
 #!/bin/bash
 # Script untuk melihat status SOC Telegram Bot
-
+# scirpt ini otomatis
 # Warna untuk output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
