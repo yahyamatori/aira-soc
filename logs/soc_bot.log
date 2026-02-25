@@ -2811,3 +2811,11 @@ telegram.error.TimedOut: Pool timeout: All connections in the connection pool ar
 2026-02-25 12:50:27,479 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
 2026-02-25 12:50:37,657 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
 2026-02-25 12:50:47,838 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
+2026-02-25 14:34:44,913 - config.logging_config - INFO - Starting SOC Telegram Bot...
+2026-02-25 14:34:44,997 - config.logging_config - INFO - Starting bot polling...
+2026-02-25 14:34:45,522 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getMe "HTTP/1.1 200 OK"
+2026-02-25 14:34:45,523 - telegram.ext.Application - INFO - Application started
+2026-02-25 14:34:45,696 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/deleteWebhook "HTTP/1.1 200 OK"
+2026-02-25 14:34:56,246 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
+2026-02-25 14:35:06,428 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
+2026-02-25 14:35:16,609 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8688413905:AAFs02Gy7NfaJrhKgYo_VVT34GmDcZFjz4w/getUpdates "HTTP/1.1 200 OK"
