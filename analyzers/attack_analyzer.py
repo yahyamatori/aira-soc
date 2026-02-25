@@ -393,13 +393,21 @@ class AttackAnalyzer:
             if attack_count >= threshold:
                 logger.info(f"⚠️ THRESHOLD EXCEEDED: {attack_type} from {src_ip} ({attack_count} >= {threshold})")
                 
+                # Get hostname info from attack
+                hostname = attack.get('hostname', 'Unknown')
+                host_ip = attack.get('host_ip')
+                
                 alert = {
                     'type': attack_type,
                     'ip': src_ip,
                     'count': attack_count,
                     'threshold': threshold,
                     'severity': attack.get('severity', 'medium'),
-                    'timestamp': attack.get('timestamp', datetime.now())
+                    'timestamp': attack.get('timestamp', datetime.now()),
+                    'hostname': hostname,
+                    'host_ip': host_ip,
+                    'dst_ip': attack.get('dst_ip'),
+                    'attack_type': attack.get('attack_type')
                 }
                 alerts.append(alert)
             else:

@@ -17,19 +17,115 @@ from telegram_bot.handlers import (
     button_callback, error_handler
 )
 from schedulers.monitor_scheduler import start_scheduler, stop_scheduler
+from core.database import DatabaseManager
+from core.models import ThresholdConfig
 
 # Setup logging
 logger = setup_logging()
 
+
+def init_default_thresholds():
+    """Initialize default thresholds if not exist"""
+    try:
+        db = DatabaseManager()
+        
+        # Get current thresholds
+        current_thresholds = db.get_thresholds()
+        
+        if not current_thresholds:
+            logger.warning("⚠️ No thresholds found! Creating default thresholds...")
+            
+            # Default thresholds
+            default_thresholds = [
+                ThresholdConfig(
+                    alert_type='failed_login',
+                    threshold_value=10,  # Lebih sensitif
+                    time_window=5,
+                    severity='high',
+                    description='Failed login attempts in 5 minutes'
+                ),
+                ThresholdConfig(
+                    alert_type='port_scan',
+                    threshold_value=20,  # Lebih sensitif
+                    time_window=5,
+                    severity='medium',
+                    description='Port scan attempts in 5 minutes'
+                ),
+                ThresholdConfig(
+                    alert_type='ddos',
+                    threshold_value=100,  # Lebih sensitif
+                    time_window=1,
+                    severity='critical',
+                    description='Requests per minute'
+                ),
+                ThresholdConfig(
+                    alert_type='brute_force',
+                    threshold_value=10,  # Lebih sensitif
+                    time_window=5,
+                    severity='high',
+                    description='Brute force attempts in 5 minutes'
+                ),
+                ThresholdConfig(
+                    alert_type='sql_injection',
+                    threshold_value=5,
+                    time_window=5,
+                    severity='high',
+                    description='SQL injection attempts'
+                ),
+                ThresholdConfig(
+                    alert_type='xss',
+                    threshold_value=5,
+                    time_window=5,
+                    severity='high',
+                    description='XSS attempts'
+                ),
+                ThresholdConfig(
+                    alert_type='suspicious_request',
+                    threshold_value=10,
+                    time_window=5,
+                    severity='medium',
+                    description='Suspicious requests (scanners/bots)'
+                ),
+                ThresholdConfig(
+                    alert_type='scanner_activity',
+                    threshold_value=10,
+                    time_window=5,
+                    severity='low',
+                    description='Scanner activity detection'
+                )
+            ]
+            
+            for threshold in default_thresholds:
+                db.db.add(threshold)
+            
+            db.db.commit()
+            db.close()
+            logger.info("✅ Default thresholds created successfully!")
+            print("✅ DEFAULT THRESHOLDS CREATED!", file=sys.stderr)
+        else:
+            logger.info(f"✅ Thresholds already exist: {current_thresholds}")
+            print(f"✅ THRESHOLDS: {current_thresholds}", file=sys.stderr)
+            
+        db.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Error initializing thresholds: {e}")
+        print(f"❌ ERROR INIT THRESHOLDS: {e}", file=sys.stderr)
+
+
 async def post_init(application: Application):
     """Fungsi yang dijalankan setelah bot inisialisasi"""
-    print("🔥 POST_INIT DIPANGGIL!", file=sys.stderr)           # <-- TAMBAHKAN INI
+    print("🔥 POST_INIT DIPANGGIL!", file=sys.stderr)
     logger.info("Bot started successfully!")
     
+    # Initialize default thresholds SEBELUM scheduler dimulai
+    print("📊 Menginisialisasi thresholds...", file=sys.stderr)
+    init_default_thresholds()
+    
     # Start scheduler untuk monitoring realtime
-    print("📞 Memanggil start_scheduler...", file=sys.stderr)   # <-- TAMBAHKAN INI
+    print("📞 Memanggil start_scheduler...", file=sys.stderr)
     start_scheduler(application)
-    print("✅ start_scheduler selesai dipanggil", file=sys.stderr)  # <-- TAMBAHKAN INI
+    print("✅ start_scheduler selesai dipanggil", file=sys.stderr)
 async def main():
     """Main function"""
     logger.info("Starting SOC Telegram Bot...")
