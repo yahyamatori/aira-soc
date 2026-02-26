@@ -34,7 +34,7 @@ else
     echo -e "${GREEN}✅ Tidak ada proses bot yang berjalan${NC}"
 fi
 
-# Hapus file PID
+# Hapus file PID akan mengecek lebih lanjut
 rm -f bot.pid
 
 echo -e "${GREEN}================================${NC}"
