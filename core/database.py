@@ -34,11 +34,48 @@ class DatabaseManager:
         return attack
 
     def save_attack_logs_bulk(self, attacks: List[dict]) -> int:
-        """Save multiple attack logs"""
-        attack_objects = [AttackLog(**data) for data in attacks]
+        """Save multiple attack logs dengan validasi duplikat"""
+        if not attacks:
+            return 0
+        
+        # Filter out duplicates based on attack_type, src_ip, and timestamp (detik yang sama)
+        new_attacks = []
+        for attack in attacks:
+            # Normalize timestamp to second precision for comparison
+            timestamp = attack.get('timestamp')
+            if isinstance(timestamp, str):
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except:
+                    pass
+            
+            # Check if this exact attack already exists
+            existing = self.db.query(AttackLog).filter(
+                AttackLog.attack_type == attack.get('attack_type'),
+                AttackLog.src_ip == attack.get('src_ip'),
+                AttackLog.timestamp == timestamp
+            ).first()
+            
+            if not existing:
+                new_attacks.append(attack)
+        
+        if not new_attacks:
+            logger.info(f"Semua {len(attacks)} attack logs adalah duplikat, tidak ada yang disimpan")
+            return 0
+        
+        # Save only new (non-duplicate) attacks
+        attack_objects = [AttackLog(**data) for data in new_attacks]
         self.db.bulk_save_objects(attack_objects)
         self.db.commit()
-        return len(attack_objects)
+        
+        duplicates_count = len(attacks) - len(new_attacks)
+        if duplicates_count > 0:
+            logger.info(f"Disimpan {len(new_attacks)} attack logs, {duplicates_count} duplikat dilewati")
+        else:
+            logger.info(f"Disimpan {len(new_attacks)} attack logs")
+        
+        return len(new_attacks)
 
     def get_recent_attacks(self, minutes: int = 60, attack_type: str = None) -> List[AttackLog]:
         """Get recent attacks"""

@@ -50,6 +50,9 @@ class AttackLog(Base):
     __table_args__ = (
         Index('idx_src_ip_timestamp', 'src_ip', 'timestamp'),
         Index('idx_attack_type_timestamp', 'attack_type', 'timestamp'),
+        # Unique constraint untuk mencegah duplikat data
+        # Kombinasi attack_type, src_ip, dan waktu (detik yang sama) tidak boleh duplikat
+        Index('idx_unique_attack', 'attack_type', 'src_ip', 'timestamp', unique=True),
     )
 
     def __repr__(self):
