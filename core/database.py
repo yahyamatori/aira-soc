@@ -40,17 +40,28 @@ class DatabaseManager:
         
         # Filter out duplicates based on attack_type, src_ip, and timestamp (detik yang sama)
         new_attacks = []
+        duplicates_count = 0
+        
         for attack in attacks:
-            # Normalize timestamp to second precision for comparison
+            # Normalize timestamp - remove timezone info for consistent comparison
             timestamp = attack.get('timestamp')
-            if isinstance(timestamp, str):
-                try:
-                    from datetime import datetime
-                    timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                except:
-                    pass
+            if timestamp:
+                if isinstance(timestamp, str):
+                    try:
+                        from datetime import datetime
+                        # Parse ISO format and remove timezone
+                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        # Remove timezone info for MySQL compatibility
+                        timestamp = dt.replace(tzinfo=None)
+                    except:
+                        pass
+                elif hasattr(timestamp, 'tzinfo') and timestamp.tzinfo is not None:
+                    # Remove timezone info if datetime has timezone
+                    timestamp = timestamp.replace(tzinfo=None)
+                
+                attack['timestamp'] = timestamp
             
-            # Check if this exact attack already exists
+            # Check if this exact attack already exists (without timezone)
             existing = self.db.query(AttackLog).filter(
                 AttackLog.attack_type == attack.get('attack_type'),
                 AttackLog.src_ip == attack.get('src_ip'),
@@ -59,23 +70,35 @@ class DatabaseManager:
             
             if not existing:
                 new_attacks.append(attack)
+            else:
+                duplicates_count += 1
         
         if not new_attacks:
             logger.info(f"Semua {len(attacks)} attack logs adalah duplikat, tidak ada yang disimpan")
             return 0
         
         # Save only new (non-duplicate) attacks
-        attack_objects = [AttackLog(**data) for data in new_attacks]
-        self.db.bulk_save_objects(attack_objects)
-        self.db.commit()
-        
-        duplicates_count = len(attacks) - len(new_attacks)
-        if duplicates_count > 0:
-            logger.info(f"Disimpan {len(new_attacks)} attack logs, {duplicates_count} duplikat dilewati")
-        else:
-            logger.info(f"Disimpan {len(new_attacks)} attack logs")
-        
-        return len(new_attacks)
+        try:
+            attack_objects = [AttackLog(**data) for data in new_attacks]
+            self.db.bulk_save_objects(attack_objects)
+            self.db.commit()
+            
+            if duplicates_count > 0:
+                logger.info(f"Disimpan {len(new_attacks)} attack logs, {duplicates_count} duplikat dilewati")
+            else:
+                logger.info(f"Disimpan {len(new_attacks)} attack logs")
+            
+            return len(new_attacks)
+            
+        except Exception as e:
+            self.db.rollback()
+            # If integrity error (duplicate), try to handle it gracefully
+            if 'Duplicate entry' in str(e) or 'UNIQUE constraint' in str(e):
+                logger.warning(f"Duplicate entry detected, skipping {len(new_attacks)} records")
+                return 0
+            else:
+                logger.error(f"Error saving attack logs: {e}")
+                raise
 
     def get_recent_attacks(self, minutes: int = 60, attack_type: str = None) -> List[AttackLog]:
         """Get recent attacks"""
