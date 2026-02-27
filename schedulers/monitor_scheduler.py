@@ -30,17 +30,28 @@ async def check_attacks_job(application):
         
         # Analisis serangan 5 menit terakhir
         analyzer = AttackAnalyzer(es)
+        
+        # Simpan attack logs ke database (OTOMATIS)
+        attacks = analyzer.analyze_period(minutes=5)
+        if attacks:
+            logger.info(f"📝 Found {len(attacks)} attacks to save")
+            db = DatabaseManager()
+            saved_count = db.save_attack_logs_bulk(attacks)
+            logger.info(f"✅ Saved {saved_count} attack logs to database")
+            db.close()
+        
+        # Cek threshold dan kirim alert
         alerts = analyzer.check_thresholds(minutes=5)
         
         if alerts:
-            logger.info(f"✅ Found {len(alerts)} alerts to send")
+            logger.info(f"🚨 Found {len(alerts)} alerts to send")
             
             db = DatabaseManager()
             for alert in alerts:
                 # Kirim ke Telegram
                 await send_alert(application, alert)
                 
-                # Simpan ke database
+                # Simpan alert ke database
                 db.save_alert({
                     'timestamp': datetime.now(),
                     'alert_type': alert['type'],
@@ -57,6 +68,7 @@ async def check_attacks_job(application):
             
     except Exception as e:
         logger.error(f"Error in check_attacks_job: {e}")
+
 
 def start_scheduler(application):
     """Memulai scheduler untuk monitoring realtime"""
