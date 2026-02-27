@@ -97,8 +97,9 @@ def start_scheduler(application):
     
     # Mulai scheduler
     scheduler.start()
-    logger.info(f"✅ Scheduler started with interval {MONITOR_INTERVAL} seconds")
-    logger.info(f"📊 Akan cek alert setiap {MONITOR_INTERVAL} detik, melihat data 5 menit ke belakang")
+    logger.info(f"✅ Scheduler started with interval {MONITOR_INTERVAL} seconds ({MONITOR_INTERVAL//60} menit)")
+    logger.info(f"📊 Akan cek attack dan alert setiap {MONITOR_INTERVAL//60} menit, melihat data 5 menit ke belakang")
+
 
 def stop_scheduler():
     """Menghentikan scheduler"""
