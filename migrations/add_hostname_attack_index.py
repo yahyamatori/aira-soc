@@ -1,7 +1,13 @@
 """
 Migration: Add hostname column to attack_logs table
 """
+import sys
+import os
 import logging
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sqlalchemy import text
 from core.models import engine
 
