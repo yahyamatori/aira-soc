@@ -14,9 +14,10 @@ from telegram_bot.handlers import (
     start_command, help_command, status_command,
     lihatlog_command, lihatattack_command, topattackers_command,
     thresholds_command, setthreshold_command,
+    scheduler_status_command,
     button_callback, error_handler
 )
-from schedulers.monitor_scheduler import start_scheduler, stop_scheduler
+from schedulers.monitor_scheduler import start_scheduler, stop_scheduler, set_telegram_app
 from core.database import DatabaseManager
 from core.models import ThresholdConfig
 
@@ -28,39 +29,37 @@ def init_default_thresholds():
     """Initialize default thresholds if not exist"""
     try:
         db = DatabaseManager()
-        
-        # Get current thresholds
+
         current_thresholds = db.get_thresholds()
-        
+
         if not current_thresholds:
             logger.warning("⚠️ No thresholds found! Creating default thresholds...")
-            
-            # Default thresholds
+
             default_thresholds = [
                 ThresholdConfig(
                     alert_type='failed_login',
-                    threshold_value=10,  # Lebih sensitif
+                    threshold_value=10,
                     time_window=5,
                     severity='high',
                     description='Failed login attempts in 5 minutes'
                 ),
                 ThresholdConfig(
                     alert_type='port_scan',
-                    threshold_value=20,  # Lebih sensitif
+                    threshold_value=20,
                     time_window=5,
                     severity='medium',
                     description='Port scan attempts in 5 minutes'
                 ),
                 ThresholdConfig(
                     alert_type='ddos',
-                    threshold_value=100,  # Lebih sensitif
+                    threshold_value=100,
                     time_window=1,
                     severity='critical',
                     description='Requests per minute'
                 ),
                 ThresholdConfig(
                     alert_type='brute_force',
-                    threshold_value=10,  # Lebih sensitif
+                    threshold_value=10,
                     time_window=5,
                     severity='high',
                     description='Brute force attempts in 5 minutes'
@@ -94,94 +93,113 @@ def init_default_thresholds():
                     description='Scanner activity detection'
                 )
             ]
-            
+
             for threshold in default_thresholds:
                 db.db.add(threshold)
-            
+
             db.db.commit()
-            db.close()
             logger.info("✅ Default thresholds created successfully!")
             print("✅ DEFAULT THRESHOLDS CREATED!", file=sys.stderr)
         else:
             logger.info(f"✅ Thresholds already exist: {current_thresholds}")
             print(f"✅ THRESHOLDS: {current_thresholds}", file=sys.stderr)
-            
+
         db.close()
-        
+
     except Exception as e:
         logger.error(f"❌ Error initializing thresholds: {e}")
         print(f"❌ ERROR INIT THRESHOLDS: {e}", file=sys.stderr)
 
 
 async def post_init(application: Application):
-    """Fungsi yang dijalankan setelah bot inisialisasi"""
+    """
+    Dijalankan setelah Telegram bot siap.
+    HANYA mendaftarkan telegram app ke scheduler,
+    bukan menjalankan scheduler (scheduler sudah jalan duluan di main).
+    """
+    logger.info("🤖 Telegram bot siap – mendaftarkan ke scheduler...")
     print("🔥 POST_INIT DIPANGGIL!", file=sys.stderr)
-    logger.info("Bot started successfully!")
-    
-    # Initialize default thresholds SEBELUM scheduler dimulai
-    print("📊 Menginisialisasi thresholds...", file=sys.stderr)
-    init_default_thresholds()
-    
-    # Start scheduler untuk monitoring realtime
-    print("📞 Memanggil start_scheduler...", file=sys.stderr)
-    start_scheduler(application)
-    print("✅ start_scheduler selesai dipanggil", file=sys.stderr)
+    set_telegram_app(application)
+    logger.info("✅ Telegram terdaftar – alert akan dikirim via Telegram mulai sekarang")
+    print("✅ Telegram app terdaftar di scheduler", file=sys.stderr)
+
+
 async def main():
     """Main function"""
     logger.info("Starting SOC Telegram Bot...")
-    
+
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not set in .env file!")
         return
-    
-    # Create application
+
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 1: Init database & thresholds
+    # Tidak butuh Telegram sama sekali
+    # ═══════════════════════════════════════════════════════════════
+    logger.info("📊 Inisialisasi database & thresholds...")
+    print("📊 Menginisialisasi thresholds...", file=sys.stderr)
+    init_default_thresholds()
+
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 2: Start scheduler SEBELUM bot diinisialisasi
+    # Scheduler langsung monitoring otomatis dari sini,
+    # tidak perlu nunggu Telegram connect
+    # ═══════════════════════════════════════════════════════════════
+    logger.info("⏰ Memulai scheduler monitoring...")
+    print("📞 Memanggil start_scheduler...", file=sys.stderr)
+    start_scheduler()   # ← tidak perlu application, langsung jalan otomatis
+    logger.info("✅ Scheduler aktif – monitoring berjalan otomatis")
+    print("✅ start_scheduler selesai dipanggil", file=sys.stderr)
+
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 3: Inisialisasi Telegram bot
+    # post_init hanya akan mendaftarkan bot ke scheduler
+    # agar alert bisa dikirim via Telegram
+    # ═══════════════════════════════════════════════════════════════
     application = Application.builder() \
         .token(TELEGRAM_BOT_TOKEN) \
         .post_init(post_init) \
         .build()
-    
+
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("schedulerstatus", scheduler_status_command))
     application.add_handler(CommandHandler("lihatlog", lihatlog_command))
     application.add_handler(CommandHandler("lihatattack", lihatattack_command))
     application.add_handler(CommandHandler("topattackers", topattackers_command))
     application.add_handler(CommandHandler("thresholds", thresholds_command))
     application.add_handler(CommandHandler("setthreshold", setthreshold_command))
-    
+
     # Add callback handler for inline buttons
     application.add_handler(CallbackQueryHandler(button_callback))
-    
+
     # Add error handler
     application.add_error_handler(error_handler)
-    
-    logger.info("Starting bot polling...")
-    
-    # Run bot
+
+    logger.info("🚀 Menjalankan bot polling...")
+
     try:
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
-        
+
         # Keep running
         while True:
             await asyncio.sleep(1)
-            
+
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Error in main loop: {e}")
     finally:
-        # Stop scheduler
         stop_scheduler()
-        
-        # Stop bot
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
-        
         logger.info("Bot shutdown complete")
+
 
 if __name__ == "__main__":
     try:
