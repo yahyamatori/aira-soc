@@ -376,6 +376,22 @@ class AttackAnalyzer:
         thresholds = db.get_thresholds()
         db.close()
         
+        # Jika thresholds kosong, gunakan default values
+        if not thresholds:
+            logger.warning("Thresholds tidak ditemukan di database, menggunakan default values")
+            thresholds = {
+                'failed_login': 10,
+                'brute_force': 10,
+                'port_scan': 20,
+                'ddos': 100,
+                'sql_injection': 5,
+                'xss': 5,
+                'path_traversal': 5,
+                'command_injection': 5,
+                'suspicious_request': 10,
+                'scanner_activity': 10
+            }
+        
         logger.debug(f"Thresholds from DB: {thresholds}")
         logger.debug(f"Attacks found: {len(attacks)}")
         

@@ -1,118 +1,136 @@
-"""Scheduler untuk monitoring realtime dan alert"""
+"""
+Scheduler untuk monitoring realtime dan alert
+- Berjalan OTOMATIS tanpa perlu trigger dari Telegram
+- Telegram hanya digunakan untuk mengirim notifikasi (opsional)
+"""
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
-import asyncio
 
 from core.elastic_connector import ElasticConnector
 from core.database import DatabaseManager
 from analyzers.attack_analyzer import AttackAnalyzer
-from telegram_bot.alerts import send_alert
 from config.settings import MONITOR_INTERVAL
 
 logger = logging.getLogger(__name__)
 
-# Inisialisasi scheduler
 scheduler = AsyncIOScheduler()
 monitoring_job = None
+_telegram_app = None
 
-async def check_attacks_job(application):
-    """Job untuk mengecek serangan secara periodik"""
+
+def set_telegram_app(application):
+    global _telegram_app
+    _telegram_app = application
+    logger.info("Telegram app terdaftar")
+
+
+async def check_attacks_job():
+    """Main job yang dijalankan secara terjadwal untuk memeriksa serangan dan alerts"""
+    logger.info("Running scheduled attack check...")
+    
+    # Gunakan satu DatabaseManager instance untuk semua operasi
+    db = None
+    
     try:
-        logger.info("🔍 Running scheduled attack check...")
-        
-        # Koneksi ke Elasticsearch
-        es = ElasticConnector()
-        if not es.test_connection():
-            logger.warning("❌ Elasticsearch tidak tersedia")
-            return
-        
-        # Analisis serangan 5 menit terakhir
-        analyzer = AttackAnalyzer(es)
-        
-        # Simpan attack logs ke database (OTOMATIS)
-        attacks = analyzer.analyze_period(minutes=5)
-        if attacks:
-            logger.info(f"📝 Found {len(attacks)} attacks to save")
-            db = DatabaseManager()
-            saved_count = db.save_attack_logs_bulk(attacks)
-            logger.info(f"✅ Saved {saved_count} attack logs to database")
-            db.close()
-        
-        # Cek threshold dan kirim alert
-        alerts = analyzer.check_thresholds(minutes=5)
-        
-        if alerts:
-            logger.info(f"🚨 Found {len(alerts)} alerts to send")
-            
-            db = DatabaseManager()
-            for alert in alerts:
-                # Kirim ke Telegram
-                await send_alert(application, alert)
-                
-                # Simpan alert ke database
-                db.save_alert({
-                    'timestamp': datetime.now(),
-                    'alert_type': alert['type'],
-                    'message': f"Alert: {alert['type']} from {alert['ip']} ({alert['count']} attempts)",
-                    'severity': alert['severity'],
-                    'attack_count': alert['count'],
-                    'threshold': alert['threshold']
-                })
-                logger.info(f"📝 Alert saved to database: {alert['type']} from {alert['ip']}")
-            
-            db.close()
-        else:
-            logger.debug("No alerts found in this check")
-            
-    except Exception as e:
-        logger.error(f"Error in check_attacks_job: {e}")
-
-
-def start_scheduler(application):
-    """Memulai scheduler untuk monitoring realtime"""
-    global scheduler, monitoring_job
-    
-    # Cek apakah scheduler sudah running
-    if scheduler.running:
-        logger.info("⚠️ Scheduler already running")
-        return
-    
-    # Hapus job lama jika ada
-    if monitoring_job:
+        # Step 1: Koneksi ke Elasticsearch
         try:
-            monitoring_job.remove()
-        except:
-            pass
-    
-    # Tambahkan job baru
+            es = ElasticConnector()
+            if not es.test_connection():
+                logger.warning("Elasticsearch tidak tersedia")
+                return
+        except Exception as e:
+            logger.error(f"Gagal koneksi Elasticsearch: {e}")
+            return
+
+        analyzer = AttackAnalyzer(es)
+
+        # Step 2: Analisa dan simpan attack logs
+        try:
+            attacks = analyzer.analyze_period(minutes=5)
+            if attacks:
+                db = DatabaseManager()
+                saved_count = db.save_attack_logs_bulk(attacks)
+                logger.info(f"{saved_count} attack logs tersimpan")
+        except Exception as e:
+            logger.error(f"Error simpan attack logs: {e}")
+
+        # Step 3: Check thresholds dan generate alerts
+        try:
+            alerts = analyzer.check_thresholds(minutes=5)
+            if not alerts:
+                logger.debug("Tidak ada alert yang melebihi threshold")
+                return
+
+            # Initialize DB if not already done
+            if db is None:
+                db = DatabaseManager()
+            
+            # Simpan alerts ke database
+            for alert in alerts:
+                db.save_alert({
+                    'timestamp':    datetime.now(),
+                    'alert_type':   alert['type'],
+                    'message':      f"Alert: {alert['type']} dari {alert['ip']} ({alert['count']} percobaan)",
+                    'severity':     alert['severity'],
+                    'attack_count': alert['count'],
+                    'threshold':    alert['threshold']
+                })
+                logger.info(f"Alert tersimpan: {alert['type']} dari {alert['ip']}")
+                
+                # Kirim ke Telegram jika tersedia
+                if _telegram_app:
+                    try:
+                        from telegram_bot.alerts import send_alert
+                        await send_alert(_telegram_app, alert)
+                    except Exception as e:
+                        logger.error(f"Gagal kirim Telegram: {e}")
+            
+            logger.info(f"{len(alerts)} alerts diproses")
+            
+        except Exception as e:
+            logger.error(f"Error proses alert: {e}")
+            
+    finally:
+        # Always close database connection
+        if db is not None:
+            try:
+                db.close()
+            except Exception as e:
+                logger.error(f"Error menutup database: {e}")
+
+
+def start_scheduler(application=None):
+    global scheduler, monitoring_job
+    if application:
+        set_telegram_app(application)
+    if scheduler.running:
+        logger.warning("Scheduler sudah berjalan")
+        return
     monitoring_job = scheduler.add_job(
         check_attacks_job,
         trigger=IntervalTrigger(seconds=MONITOR_INTERVAL),
-        args=[application],
         id='check_attacks',
-        replace_existing=True
+        replace_existing=True,
+        next_run_time=datetime.now()
     )
-    
-    # Mulai scheduler
     scheduler.start()
-    logger.info(f"✅ Scheduler started with interval {MONITOR_INTERVAL} seconds ({MONITOR_INTERVAL//60} menit)")
-    logger.info(f"📊 Akan cek attack dan alert setiap {MONITOR_INTERVAL//60} menit, melihat data 5 menit ke belakang")
+    logger.info(f"Scheduler berjalan – interval {MONITOR_INTERVAL}s")
 
 
 def stop_scheduler():
-    """Menghentikan scheduler"""
     global scheduler
-    
     if scheduler.running:
-        scheduler.shutdown()
-        logger.info("🛑 Scheduler stopped")
+        scheduler.shutdown(wait=False)
+        logger.info("Scheduler dihentikan")
 
-def get_scheduler_status():
-    """Mendapatkan status scheduler"""
+
+def get_scheduler_status() -> dict:
     return {
-        'running': scheduler.running,
-        'jobs': len(scheduler.get_jobs()),
-        'next_run': monitoring_job.next_run_time if monitoring_job else None
+        'running':          scheduler.running,
+        'jobs':             len(scheduler.get_jobs()),
+        'next_run':         monitoring_job.next_run_time if monitoring_job else None,
+        'telegram_ready':   _telegram_app is not None,
+        'interval_seconds': MONITOR_INTERVAL,
     }
