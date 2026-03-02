@@ -51,7 +51,7 @@ async def check_attacks_job():
             # Gunakan window 30 menit untuk menangkap lebih banyak serangan
             attacks = analyzer.analyze_period(minutes=30)
             if attacks:
-                # Prepare attacks for database (remove hostname field like handler does)
+                # Prepare attacks for database (include hostname field)
                 db_attacks = []
                 for attack in attacks:
                     db_attack = {
@@ -64,7 +64,8 @@ async def check_attacks_job():
                         'protocol': attack.get('protocol', 'tcp'),
                         'severity': attack['severity'],
                         'count': attack['count'],
-                        'raw_data': attack.get('raw_data', '')
+                        'raw_data': attack.get('raw_data', ''),
+                        'hostname': attack.get('hostname')  # Include hostname untuk tahu server mana yang diserang
                     }
                     db_attacks.append(db_attack)
                 
