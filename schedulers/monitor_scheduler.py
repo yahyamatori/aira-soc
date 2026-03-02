@@ -46,17 +46,37 @@ async def check_attacks_job():
 
         analyzer = AttackAnalyzer(es)
 
-        # Step 2: Analisa dan simpan attack logs
+        # Step 2: Analisa dan simpan attack logs (SEMUA serangan, tidak hanya yang exceed threshold)
         try:
-            attacks = analyzer.analyze_period(minutes=5)
+            # Gunakan window 30 menit untuk menangkap lebih banyak serangan
+            attacks = analyzer.analyze_period(minutes=30)
             if attacks:
+                # Prepare attacks for database (remove hostname field like handler does)
+                db_attacks = []
+                for attack in attacks:
+                    db_attack = {
+                        'timestamp': attack['timestamp'],
+                        'attack_type': attack['attack_type'],
+                        'src_ip': attack['src_ip'],
+                        'dst_ip': attack.get('dst_ip'),
+                        'src_port': attack.get('src_port'),
+                        'dst_port': attack.get('dst_port'),
+                        'protocol': attack.get('protocol', 'tcp'),
+                        'severity': attack['severity'],
+                        'count': attack['count'],
+                        'raw_data': attack.get('raw_data', '')
+                    }
+                    db_attacks.append(db_attack)
+                
                 db = DatabaseManager()
-                saved_count = db.save_attack_logs_bulk(attacks)
+                saved_count = db.save_attack_logs_bulk(db_attacks)
                 logger.info(f"{saved_count} attack logs tersimpan")
+            else:
+                logger.debug("Tidak ada attack patterns ditemukan dalam 30 menit")
         except Exception as e:
             logger.error(f"Error simpan attack logs: {e}")
 
-        # Step 3: Check thresholds dan generate alerts
+        # Step 3: Check thresholds dan generate alerts (untuk alerting real-time)
         try:
             alerts = analyzer.check_thresholds(minutes=5)
             if not alerts:
