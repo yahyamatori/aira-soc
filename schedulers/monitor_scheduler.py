@@ -11,7 +11,11 @@ from datetime import datetime
 from core.elastic_connector import ElasticConnector
 from core.database import DatabaseManager
 from analyzers.attack_analyzer import AttackAnalyzer
-from config.settings import MONITOR_INTERVAL, DEBUG_MODE
+try:
+    from config.settings import MONITOR_INTERVAL, DEBUG_MODE
+except ImportError:
+    MONITOR_INTERVAL = 300
+    DEBUG_MODE = False
 
 logger = logging.getLogger(__name__)
 

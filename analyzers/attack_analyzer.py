@@ -3,7 +3,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import re
 
-from config.settings import DEBUG_MODE
+try:
+    from config.settings import DEBUG_MODE
+except ImportError:
+    DEBUG_MODE = False
 
 logger = logging.getLogger(__name__)
 
