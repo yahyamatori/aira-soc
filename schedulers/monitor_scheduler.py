@@ -11,9 +11,13 @@ from datetime import datetime
 from core.elastic_connector import ElasticConnector
 from core.database import DatabaseManager
 from analyzers.attack_analyzer import AttackAnalyzer
-from config.settings import MONITOR_INTERVAL
+from config.settings import MONITOR_INTERVAL, DEBUG_MODE
 
 logger = logging.getLogger(__name__)
+
+# Setup debug logging
+if DEBUG_MODE:
+    logging.getLogger().setLevel(logging.DEBUG)
 
 scheduler = AsyncIOScheduler()
 monitoring_job = None
@@ -23,103 +27,123 @@ _telegram_app = None
 def set_telegram_app(application):
     global _telegram_app
     _telegram_app = application
-    logger.info("Telegram app terdaftar")
+    logger.info("Telegram app terdaftar untuk scheduler")
 
 
 async def check_attacks_job():
-    """Main job yang dijalankan secara terjadwal untuk memeriksa serangan dan alerts"""
-    logger.info("Running scheduled attack check...")
+    """
+    Job utama: analisis log dan simpan serangan ke database,
+    lalu kirim alert ke Telegram jika threshold exceeded
+    """
+    logger.info("🔍 Running scheduled attack check...")
     
-    # Gunakan satu DatabaseManager instance untuk semua operasi
-    db = None
-    
+    # Step 1: Test koneksi Elasticsearch
     try:
-        # Step 1: Koneksi ke Elasticsearch
-        try:
-            es = ElasticConnector()
-            if not es.test_connection():
-                logger.warning("Elasticsearch tidak tersedia")
-                return
-        except Exception as e:
-            logger.error(f"Gagal koneksi Elasticsearch: {e}")
+        es = ElasticConnector()
+        if not es.test_connection():
+            logger.warning("⚠️ Elasticsearch tidak tersedia, skip analysis")
             return
+        logger.debug("✓ Elasticsearch connection OK")
+    except Exception as e:
+        logger.error(f"❌ Gagal koneksi Elasticsearch: {e}")
+        return
 
-        analyzer = AttackAnalyzer(es)
+    analyzer = AttackAnalyzer(es)
 
-        # Step 2: Analisa dan simpan attack logs (SEMUA serangan, tidak hanya yang exceed threshold)
+    # Step 2: Ambil dan analisis log dari Elasticsearch
+    try:
+        # Analisis serangan dalam 5 menit terakhir
+        attacks = analyzer.analyze_period(minutes=5)
+        logger.info(f"📊 Ditemukan {len(attacks)} attack patterns dalam 5 menit")
+        
+        if DEBUG_MODE:
+            for attack in attacks[:5]:  # Show first 5
+                logger.debug(f"   - {attack.get('attack_type')}: {attack.get('src_ip')} x{attack.get('count')}")
+
+    except Exception as e:
+        logger.error(f"❌ Error saat analisis attacks: {e}")
+        return
+
+    # Step 3: Simpan SEMUA serangan ke database (bukan hanya yang exceed threshold)
+    if attacks:
         try:
-            # Gunakan window 30 menit untuk menangkap lebih banyak serangan
-            attacks = analyzer.analyze_period(minutes=30)
-            if attacks:
-                # Prepare attacks for database (include hostname field)
-                db_attacks = []
-                for attack in attacks:
-                    db_attack = {
-                        'timestamp': attack['timestamp'],
-                        'attack_type': attack['attack_type'],
-                        'src_ip': attack['src_ip'],
-                        'dst_ip': attack.get('dst_ip'),
-                        'src_port': attack.get('src_port'),
-                        'dst_port': attack.get('dst_port'),
-                        'protocol': attack.get('protocol', 'tcp'),
-                        'severity': attack['severity'],
-                        'count': attack['count'],
-                        'raw_data': attack.get('raw_data', ''),
-                        'hostname': attack.get('hostname')  # Include hostname untuk tahu server mana yang diserang
-                    }
-                    db_attacks.append(db_attack)
-                
-                db = DatabaseManager()
-                saved_count = db.save_attack_logs_bulk(db_attacks)
-                logger.info(f"{saved_count} attack logs tersimpan")
-            else:
-                logger.debug("Tidak ada attack patterns ditemukan dalam 30 menit")
-        except Exception as e:
-            logger.error(f"Error simpan attack logs: {e}")
-
-        # Step 3: Check thresholds dan generate alerts (untuk alerting real-time)
-        try:
-            alerts = analyzer.check_thresholds(minutes=5)
-            if not alerts:
-                logger.debug("Tidak ada alert yang melebihi threshold")
-                return
-
-            # Initialize DB if not already done
-            if db is None:
-                db = DatabaseManager()
+            db = DatabaseManager()
             
-            # Simpan alerts ke database
-            for alert in alerts:
-                db.save_alert({
-                    'timestamp':    datetime.now(),
-                    'alert_type':   alert['type'],
-                    'message':      f"Alert: {alert['type']} dari {alert['ip']} ({alert['count']} percobaan)",
-                    'severity':     alert['severity'],
-                    'attack_count': alert['count'],
-                    'threshold':    alert['threshold']
-                })
-                logger.info(f"Alert tersimpan: {alert['type']} dari {alert['ip']}")
+            # Prepare attacks for database
+            db_attacks = []
+            for attack in attacks:
+                # Handle timestamp - remove timezone for MySQL
+                timestamp = attack.get('timestamp')
+                if timestamp:
+                    if hasattr(timestamp, 'tzinfo') and timestamp.tzinfo is not None:
+                        timestamp = timestamp.replace(tzinfo=None)
+                    elif isinstance(timestamp, str):
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            timestamp = dt.replace(tzinfo=None)
+                        except:
+                            timestamp = datetime.now()
                 
-                # Kirim ke Telegram jika tersedia
+                db_attack = {
+                    'timestamp': timestamp,
+                    'attack_type': attack.get('attack_type'),
+                    'src_ip': attack.get('src_ip'),
+                    'dst_ip': attack.get('dst_ip'),
+                    'src_port': attack.get('src_port'),
+                    'dst_port': attack.get('dst_port'),
+                    'protocol': attack.get('protocol', 'tcp'),
+                    'severity': attack.get('severity', 'medium'),
+                    'count': attack.get('count', 1),
+                    'raw_data': str(attack.get('raw_data', ''))[:500],
+                    'hostname': attack.get('hostname')  # Server yang diserang
+                }
+                db_attacks.append(db_attack)
+            
+            saved_count = db.save_attack_logs_bulk(db_attacks)
+            db.close()
+            logger.info(f"💾 {saved_count} attack logs disimpan ke database")
+            
+        except Exception as e:
+            logger.error(f"❌ Error simpan attack logs: {e}")
+
+    # Step 4: Cek threshold dan generate alerts
+    try:
+        alerts = analyzer.check_thresholds(minutes=5)
+        
+        if alerts:
+            logger.info(f"🚨 {len(alerts)} alerts melebihi threshold!")
+            
+            db = DatabaseManager()
+            
+            for alert in alerts:
+                # Simpan alert ke database
+                db.save_alert({
+                    'timestamp': datetime.now(),
+                    'alert_type': alert['type'],
+                    'message': f"Alert: {alert['type']} dari {alert['ip']} ({alert['count']} percobaan)",
+                    'severity': alert['severity'],
+                    'attack_count': alert['count'],
+                    'threshold': alert['threshold']
+                })
+                
+                # Kirim ke Telegram jika app tersedia
                 if _telegram_app:
                     try:
                         from telegram_bot.alerts import send_alert
                         await send_alert(_telegram_app, alert)
+                        logger.info(f"📱 Alert dikirim ke Telegram: {alert['type']} dari {alert['ip']}")
                     except Exception as e:
-                        logger.error(f"Gagal kirim Telegram: {e}")
+                        logger.error(f"❌ Gagal kirim Telegram: {e}")
             
-            logger.info(f"{len(alerts)} alerts diproses")
+            db.close()
+        else:
+            logger.debug("✓ Tidak ada alert threshold yang exceeded")
             
-        except Exception as e:
-            logger.error(f"Error proses alert: {e}")
-            
-    finally:
-        # Always close database connection
-        if db is not None:
-            try:
-                db.close()
-            except Exception as e:
-                logger.error(f"Error menutup database: {e}")
+    except Exception as e:
+        logger.error(f"❌ Error proses alert: {e}")
+
+    logger.info("✅ Scheduled check complete")
 
 
 def start_scheduler(application=None):
@@ -127,8 +151,9 @@ def start_scheduler(application=None):
     if application:
         set_telegram_app(application)
     if scheduler.running:
-        logger.warning("Scheduler sudah berjalan")
+        logger.warning("Scheduler sudah berjalan!")
         return
+    
     monitoring_job = scheduler.add_job(
         check_attacks_job,
         trigger=IntervalTrigger(seconds=MONITOR_INTERVAL),
@@ -137,21 +162,21 @@ def start_scheduler(application=None):
         next_run_time=datetime.now()
     )
     scheduler.start()
-    logger.info(f"Scheduler berjalan – interval {MONITOR_INTERVAL}s")
+    logger.info(f"✅ Scheduler dimulai – interval {MONITOR_INTERVAL}s ({MONITOR_INTERVAL//60} menit)")
 
 
 def stop_scheduler():
     global scheduler
     if scheduler.running:
         scheduler.shutdown(wait=False)
-        logger.info("Scheduler dihentikan")
+        logger.info("⏹ Scheduler dihentikan")
 
 
 def get_scheduler_status() -> dict:
     return {
-        'running':          scheduler.running,
-        'jobs':             len(scheduler.get_jobs()),
-        'next_run':         monitoring_job.next_run_time if monitoring_job else None,
-        'telegram_ready':   _telegram_app is not None,
+        'running': scheduler.running,
+        'jobs': len(scheduler.get_jobs()),
+        'next_run': monitoring_job.next_run_time if monitoring_job else None,
+        'telegram_ready': _telegram_app is not None,
         'interval_seconds': MONITOR_INTERVAL,
     }

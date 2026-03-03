@@ -3,7 +3,14 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import re
 
+from config.settings import DEBUG_MODE
+
 logger = logging.getLogger(__name__)
+
+# Setup debug
+if DEBUG_MODE:
+    logging.getLogger().setLevel(logging.DEBUG)
+
 
 class AttackAnalyzer:
     """Kelas untuk menganalisis serangan dari log Elasticsearch"""
@@ -11,45 +18,67 @@ class AttackAnalyzer:
     def __init__(self, elastic_connector):
         self.es = elastic_connector
 
-        # Pola-pola untuk deteksi serangan
+        # Pola-pola untuk deteksi serangan - LEBIH FLEKSIBEL
         self.patterns = {
             'failed_login': [
+                r'failed',
+                r'failure',
                 r'failed login',
                 r'authentication failed',
+                r'invalid credentials',
                 r'invalid password',
                 r'login incorrect',
-                r'Access denied for user',
-                r'HTTP/1.1" 401',
-                r'HTTP/1.1" 403'
+                r'access denied',
+                r'401',
+                r'403',
+                r'unauthorized',
+                r'wrong password',
+                r'incorrect password',
+                r'user not found',
+                r'bad credentials'
             ],
             'brute_force': [
                 r'brute force',
+                r'brute-force',
                 r'multiple failed',
                 r'repeated login',
-                r'too many attempts'
+                r'too many attempts',
+                r'max attempts',
+                r'lockout',
+                r'blocked'
             ],
             'port_scan': [
                 r'port scan',
                 r'syn scan',
                 r'nmap',
-                r'multiple ports'
+                r'multiple ports',
+                r'scan',
+                r'connection refused',
+                r'filtered',
+                r'no route to host'
             ],
             'ddos': [
                 r'ddos',
+                r'dos',
                 r'flood',
                 r'high traffic',
                 r'multiple requests',
-                r'too many requests'
+                r'too many requests',
+                r'request timeout',
+                r'resource exhausted'
             ],
             'sql_injection': [
                 r'union.*select',
                 r'select.*from',
                 r'1=1',
                 r'--',
-                r'DROP TABLE',
-                r'SELECT.*FROM',
+                r'drop table',
                 r'information_schema',
-                r'0x[0-9a-f]+'
+                r'0x[0-9a-f]+',
+                r'or 1=1',
+                r"' or '",
+                r'exec\(',
+                r'execute\('
             ],
             'xss': [
                 r'<script>',
@@ -58,13 +87,17 @@ class AttackAnalyzer:
                 r'alert\(',
                 r'onload=',
                 r'<iframe',
-                r'<img src='
+                r'<img src=',
+                r'eval\('
             ],
             'path_traversal': [
                 r'\.\./',
                 r'\.\.\\',
                 r'%2e%2e%2f',
-                r'%252e%252e%252f'
+                r'%252e%252e%252f',
+                r'\.\.%2f',
+                r'etc/passwd',
+                r'windows/system32'
             ],
             'command_injection': [
                 r';\s*ls\s',
@@ -72,17 +105,26 @@ class AttackAnalyzer:
                 r';\s*wget\s',
                 r';\s*curl\s',
                 r'\|\s*sh\s',
-                r'\|\s*bash\s'
+                r'\|\s*bash\s',
+                r'`.*`',
+                r'\$\(',
+                r'\|\s*nc\s'
             ],
             'suspicious_request': [
                 r'\.env',
                 r'wp-admin',
+                r'wp-login',
                 r'setup-config',
                 r'owa/',
                 r'zgrab',
                 r'aaa[0-9]',
                 r'\\x[0-9a-f]{2}',
-                r'[^\x20-\x7E]'
+                r'[^\x20-\x7E]',
+                r'.php$',
+                r'\?cmd=',
+                r'\?exec',
+                r'phpmyadmin',
+                r/admin.php
             ],
             'scanner_activity': [
                 r'zgrab',
@@ -90,7 +132,10 @@ class AttackAnalyzer:
                 r'bot',
                 r'crawler',
                 r'nmap',
-                r'masscan'
+                r'masscan',
+                r'nikto',
+                r'gobuster',
+                r'dirbuster'
             ]
         }
 
@@ -107,34 +152,48 @@ class AttackAnalyzer:
     def _analyze_period_from_es(self, minutes: int = 60) -> List[Dict[str, Any]]:
         """Analisis serangan dari Elasticsearch"""
         try:
-            # Ambil logs dari Elasticsearch
-            logs = self.es.get_recent_logs(minutes=minutes, size=10000)
+            # Ambil logs dari Elasticsearch - take more logs for better detection
+            logs = self.es.get_recent_logs(minutes=minutes, size=5000)
+            
+            if DEBUG_MODE:
+                logger.debug(f"📥 Retrieved {len(logs)} logs from Elasticsearch")
 
             if not logs:
+                # Coba ambil error logs juga
+                if DEBUG_MODE:
+                    logger.debug("No regular logs, trying error logs...")
+                logs = self.es.get_error_logs(minutes=minutes, size=1000)
+                if DEBUG_MODE:
+                    logger.debug(f"📥 Retrieved {len(logs)} error logs from Elasticsearch")
+
+            if not logs:
+                logger.info("No logs found in Elasticsearch for analysis")
                 return []
 
             attacks = []
 
             for log in logs:
-                # Ekstrak informasi dasar
                 attack_data = self._extract_attack_info(log)
                 if attack_data:
                     attacks.append(attack_data)
 
+            if DEBUG_MODE:
+                logger.debug(f"🔍 Extracted {len(attacks)} potential attacks")
+
             # Aggregasi serangan per IP dan tipe
             aggregated = self._aggregate_attacks(attacks)
 
-            logger.info(f"Analyzed {len(logs)} logs, found {len(aggregated)} attack patterns")
+            logger.info(f"Analyzed {len(logs)} logs, found {len(aggregated)} unique attack patterns")
             return aggregated
 
         except Exception as e:
             logger.error(f"Error in analyze_period from ES: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     def _analyze_period_from_db(self, minutes: int = 60) -> List[Dict[str, Any]]:
-        """
-        Analisis serangan dari database (untuk testing)
-        """
+        """Analisis serangan dari database (untuk testing)"""
         try:
             from core.database import DatabaseManager
             from core.models import AttackLog
@@ -159,11 +218,10 @@ class AttackAnalyzer:
                     'severity': att.severity,
                     'count': att.count,
                     'raw_data': att.raw_data,
-                    'hostname': 'Database Test'
+                    'hostname': getattr(att, 'hostname', 'Database Test')
                 }
                 attacks.append(attack_data)
             
-            # Aggregasi
             aggregated = self._aggregate_attacks(attacks)
             logger.info(f"Analyzed {len(attacks_db)} logs from DB, found {len(aggregated)} attack patterns")
             db.close()
@@ -176,9 +234,20 @@ class AttackAnalyzer:
     def _extract_attack_info(self, log: Dict) -> Dict[str, Any]:
         """Ekstrak informasi serangan dari satu log"""
         try:
-            # Ambil field yang relevan
-            message = log.get('message', '').lower()
-            timestamp = log.get('@timestamp', datetime.now().isoformat())
+            # Ambil field yang relevan dari log
+            # Coba berbagai format field name
+            message = ''
+            if 'message' in log:
+                message = str(log['message']).lower()
+            elif 'msg' in log:
+                message = str(log['msg']).lower()
+            elif 'log' in log:
+                message = str(log['log']).lower()
+            
+            # Combine all text fields for detection
+            log_str = str(log).lower()
+            
+            timestamp = log.get('@timestamp') or log.get('timestamp') or log.get('time') or datetime.now().isoformat()
 
             # Parse timestamp
             if isinstance(timestamp, str):
@@ -187,37 +256,40 @@ class AttackAnalyzer:
                 except:
                     timestamp = datetime.now()
 
-            # Ekstrak IP
+            # Ekstrak IP - coba berbagai field
             src_ip = self._extract_ip(log, 'source.ip') or \
                      self._extract_ip(log, 'client.ip') or \
                      self._extract_ip(log, 'src_ip') or \
-                     self._extract_ip_from_message(message)
+                     self._extract_ip(log, 'src') or \
+                     self._extract_ip_from_message(log_str)
 
             dst_ip = self._extract_ip(log, 'destination.ip') or \
                      self._extract_ip(log, 'server.ip') or \
-                     self._extract_ip(log, 'dst_ip')
+                     self._extract_ip(log, 'dst_ip') or \
+                     self._extract_ip(log, 'dst') or \
+                     self._extract_ip(log, 'host.ip')
 
             # Ekstrak port
-            src_port = log.get('source.port') or log.get('src_port') or self._extract_port(message, 'src')
-            dst_port = log.get('destination.port') or log.get('dst_port') or self._extract_port(message, 'dst')
+            src_port = log.get('source.port') or log.get('src_port') or log.get('src_port') or self._extract_port(message, 'src')
+            dst_port = log.get('destination.port') or log.get('dst_port') or log.get('server.port') or self._extract_port(message, 'dst')
 
             # Deteksi tipe serangan
-            attack_type, severity = self._detect_attack_type(message)
+            attack_type, severity = self._detect_attack_type(log_str)
 
             if not attack_type or not src_ip:
                 return None
 
-            # AMBIL HOSTNAME DARI LOG
+            # Ambil hostname server yang diserang
             hostname = None
             host_ip = None
             
-            # PRIORITAS 1: agent.hostname (dari log Anda)
+            # Priority 1: agent.hostname
             if 'agent.hostname' in log:
                 hostname = log['agent.hostname']
             elif 'agent' in log and isinstance(log['agent'], dict):
                 hostname = log['agent'].get('hostname')
             
-            # PRIORITAS 2: host.name
+            # Priority 2: host.name
             if not hostname and 'host.name' in log:
                 hostname = log['host.name']
             elif not hostname and 'host' in log and isinstance(log['host'], dict):
@@ -228,35 +300,30 @@ class AttackAnalyzer:
                     if isinstance(host_ip, list):
                         host_ip = host_ip[0] if host_ip else None
             
-            # PRIORITAS 3: host.hostname
+            # Priority 3: host.hostname
             if not hostname and 'host.hostname' in log:
                 hostname = log['host.hostname']
             
-            # PRIORITAS 4: host.ip
+            # Priority 4: host.ip
             if not host_ip and 'host.ip' in log:
                 host_ip = log['host.ip']
                 if isinstance(host_ip, list):
                     host_ip = host_ip[0] if host_ip else None
 
-            # Return data serangan LENGKAP
+            # Return attack data
             return {
-                # Field untuk database
                 'timestamp': timestamp,
                 'attack_type': attack_type,
                 'src_ip': src_ip,
                 'dst_ip': dst_ip,
                 'src_port': src_port,
                 'dst_port': dst_port,
-                'protocol': log.get('network.protocol', 'tcp'),
+                'protocol': log.get('network.protocol') or log.get('protocol') or 'tcp',
                 'severity': severity,
                 'count': 1,
                 'raw_data': str(log)[:500],
-                
-                # Field tambahan untuk formatters
                 'hostname': hostname or 'Unknown',
-                'host_ip': host_ip,
-                'agent_hostname': log.get('agent.hostname'),
-                'host_name': log.get('host.name')
+                'host_ip': host_ip
             }
 
         except Exception as e:
@@ -272,19 +339,35 @@ class AttackAnalyzer:
                 value = value.get(part)
             else:
                 return None
-        return value if isinstance(value, str) else None
+        return value if isinstance(value, str) and self._is_valid_ip(value) else None
+
+    def _is_valid_ip(self, ip: str) -> bool:
+        """Cek apakah string adalah IP yang valid"""
+        if not ip:
+            return False
+        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        if re.match(pattern, ip):
+            parts = ip.split('.')
+            return all(0 <= int(p) <= 255 for p in parts)
+        return False
 
     def _extract_ip_from_message(self, message: str) -> str:
-        """Ekstrak IP dari pesan log menggunakan regex"""
+        """Ekstrak IP dari pesan log"""
         ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-        match = re.search(ip_pattern, message)
-        return match.group(0) if match else None
+        matches = re.findall(ip_pattern, message)
+        # Return first valid IP
+        for match in matches:
+            if self._is_valid_ip(match):
+                return match
+        return None
 
     def _extract_port(self, message: str, port_type: str = 'src') -> int:
         """Ekstrak port dari pesan"""
         patterns = [
-            rf'{port_type}[:=]?(\d{{1,5}})',
-            r'port[=:](\d{1,5})',
+            rf'{port_type}[_]?port[:=]?(\d{{1,5}})',
+            rf'source.*port[:=]?(\d{{1,5}})',
+            rf'dest(?:ination)?.*port[:=]?(\d{{1,5}})',
+            r'port[=: ](\d{1,5})',
             r':(\d{1,5})\b'
         ]
 
@@ -297,14 +380,20 @@ class AttackAnalyzer:
 
         return None
 
-    def _detect_attack_type(self, message: str) -> tuple:
-        """Deteksi tipe serangan dari pesan log"""
-        message_lower = message.lower()
-
+    def _detect_attack_type(self, log_text: str) -> tuple:
+        """Deteksi tipe serangan dari log"""
+        # Also check HTTP status codes
+        if re.search(r'\b401\b', log_text) or re.search(r'\b403\b', log_text):
+            return 'failed_login', 'medium'
+        
+        if re.search(r'\b(500|502|503|504)\b', log_text):
+            return 'ddos', 'medium'
+        
+        # Check patterns
         for attack_type, patterns in self.patterns.items():
             for pattern in patterns:
-                if re.search(pattern, message_lower, re.IGNORECASE):
-                    severity = self._determine_severity(attack_type, message)
+                if re.search(pattern, log_text, re.IGNORECASE):
+                    severity = self._determine_severity(attack_type, log_text)
                     return attack_type, severity
 
         return None, None
@@ -326,10 +415,12 @@ class AttackAnalyzer:
 
         base_severity = severity_map.get(attack_type, 'medium')
 
+        # Tingkatkan severity jika ada indikator kritis
         critical_indicators = [
             'root', 'admin', 'success', 'bypass',
             'multiple', 'massive', 'automated',
-            '200', 'ok', 'successful'
+            '200', 'ok', 'successful', 'executed',
+            'database', 'drop', 'delete'
         ]
 
         if any(ind in message.lower() for ind in critical_indicators):
@@ -341,7 +432,7 @@ class AttackAnalyzer:
         return base_severity
 
     def _aggregate_attacks(self, attacks: List[Dict]) -> List[Dict]:
-        """Aggregasi serangan per IP dan tipe dalam window waktu"""
+        """Aggregasi serangan per IP dan tipe"""
         if not attacks:
             return []
 
@@ -354,15 +445,14 @@ class AttackAnalyzer:
                 aggregated[key] = attack.copy()
             else:
                 aggregated[key]['count'] += 1
+                # Use latest timestamp
                 if attack['timestamp'] > aggregated[key]['timestamp']:
                     aggregated[key]['timestamp'] = attack['timestamp']
 
         return list(aggregated.values())
 
     def check_thresholds(self, minutes: int = 5) -> List[Dict]:
-        """
-        Cek apakah ada serangan yang melebihi threshold
-        """
+        """Cek apakah ada serangan yang melebihi threshold"""
         # Ambil serangan dalam periode tertentu
         attacks = self.analyze_period(minutes=minutes)
         
@@ -376,9 +466,9 @@ class AttackAnalyzer:
         thresholds = db.get_thresholds()
         db.close()
         
-        # Jika thresholds kosong, gunakan default values
+        # Default thresholds jika tidak ada di DB
         if not thresholds:
-            logger.warning("Thresholds tidak ditemukan di database, menggunakan default values")
+            logger.warning("Thresholds tidak ada di DB, menggunakan default")
             thresholds = {
                 'failed_login': 10,
                 'brute_force': 10,
@@ -392,8 +482,9 @@ class AttackAnalyzer:
                 'scanner_activity': 10
             }
         
-        logger.debug(f"Thresholds from DB: {thresholds}")
-        logger.debug(f"Attacks found: {len(attacks)}")
+        if DEBUG_MODE:
+            logger.debug(f"Thresholds: {thresholds}")
+            logger.debug(f"Attacks: {len(attacks)}")
         
         alerts = []
         
@@ -402,14 +493,11 @@ class AttackAnalyzer:
             attack_count = attack.get('count', 1)
             src_ip = attack.get('src_ip', 'Unknown')
             
-            # Dapatkan threshold untuk tipe serangan ini
             threshold = thresholds.get(attack_type, 999999)
             
-            # LOGIKA PERBANDINGAN: jika count >= threshold, buat alert
             if attack_count >= threshold:
-                logger.info(f"⚠️ THRESHOLD EXCEEDED: {attack_type} from {src_ip} ({attack_count} >= {threshold})")
+                logger.info(f"⚠️ ALERT: {attack_type} from {src_ip} ({attack_count} >= {threshold})")
                 
-                # Get hostname info from attack
                 hostname = attack.get('hostname', 'Unknown')
                 host_ip = attack.get('host_ip')
                 
@@ -423,11 +511,9 @@ class AttackAnalyzer:
                     'hostname': hostname,
                     'host_ip': host_ip,
                     'dst_ip': attack.get('dst_ip'),
-                    'attack_type': attack.get('attack_type')
+                    'attack_type': attack_type
                 }
                 alerts.append(alert)
-            else:
-                logger.debug(f"Normal: {attack_type} from {src_ip} ({attack_count} < {threshold})")
         
-        logger.info(f"Total alerts generated: {len(alerts)}")
+        logger.info(f"Total alerts: {len(alerts)}")
         return alerts
