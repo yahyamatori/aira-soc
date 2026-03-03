@@ -1,4 +1,5 @@
 import logging
+import traceback
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import re
@@ -127,7 +128,7 @@ class AttackAnalyzer:
                 r'\?cmd=',
                 r'\?exec',
                 r'phpmyadmin',
-                r/admin.php
+                r'admin.php'
             ],
             'scanner_activity': [
                 r'zgrab',
@@ -191,7 +192,6 @@ class AttackAnalyzer:
 
         except Exception as e:
             logger.error(f"Error in analyze_period from ES: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return []
 
