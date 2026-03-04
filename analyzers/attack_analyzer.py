@@ -1,13 +1,14 @@
 import logging
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 import re
 
 try:
-    from config.settings import DEBUG_MODE
+    from config.settings import DEBUG_MODE, TIMEZONE
 except ImportError:
     DEBUG_MODE = False
+    TIMEZONE = 'Asia/Jakarta'
 
 logger = logging.getLogger(__name__)
 

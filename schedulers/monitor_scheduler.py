@@ -12,10 +12,11 @@ from core.elastic_connector import ElasticConnector
 from core.database import DatabaseManager
 from analyzers.attack_analyzer import AttackAnalyzer
 try:
-    from config.settings import MONITOR_INTERVAL, DEBUG_MODE
+    from config.settings import MONITOR_INTERVAL, DEBUG_MODE, TIMEZONE
 except ImportError:
     MONITOR_INTERVAL = 300
     DEBUG_MODE = False
+    TIMEZONE = 'Asia/Jakarta'
 
 logger = logging.getLogger(__name__)
 

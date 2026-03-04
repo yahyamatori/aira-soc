@@ -3,6 +3,40 @@ from typing import List, Dict, Any, Optional
 import re
 from collections import defaultdict
 
+try:
+    from config.settings import TIMEZONE
+except ImportError:
+    TIMEZONE = 'Asia/Jakarta'
+
+
+def format_timestamp(ts) -> str:
+    """
+    Format timestamp dengan konsisten untuk timezone yang dikonfigurasi.
+    Mengkonversi dari UTC (Elasticsearch) ke timezone server.
+    """
+    if not ts:
+        return 'N/A'
+    
+    try:
+        # Jika string, konversi ke datetime
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        
+        # Jika timezone-aware, konversi ke timezone yang dikonfigurasi
+        if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
+            # Konversi dari UTC ke timezone lokal
+            try:
+                import pytz
+                local_tz = pytz.timezone(TIMEZONE)
+                ts = ts.astimezone(local_tz)
+            except:
+                pass  # Gunakan UTC jika gagal
+        
+        # Format output
+        return ts.strftime('%Y-%m-%d %H:%M:%S')
+    except:
+        return str(ts)[:19] if len(str(ts)) > 19 else str(ts)
+
 
 def escape_markdown(text: str) -> str:
     """Escape karakter khusus Markdown untuk Telegram"""

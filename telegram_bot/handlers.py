@@ -9,7 +9,6 @@ from core.database import DatabaseManager
 from core.elastic_connector import ElasticConnector
 from analyzers.attack_analyzer import AttackAnalyzer
 from utils.formatters import format_attack_summary, format_top_attackers, format_system_status
-from schedulers.monitor_scheduler import get_scheduler_status
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - Menampilkan pesan ini\n"
         "/help - Bantuan dan daftar command\n"
         "/status - Cek status sistem\n"
-        "/schedulerstatus - Cek status scheduler monitoring\n"
         "/lihatlog [jumlah] - Lihat log terbaru (contoh: /lihatlog 10)\n"
         "/lihatattack [periode] - Lihat ringkasan serangan\n"
         "   • /lihatattack 1h - 1 jam terakhir\n"
@@ -70,7 +68,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔍 **Bantuan Penggunaan**\n\n"
         "**Perintah Dasar:**\n"
         "• /status - Cek koneksi ke Elasticsearch dan Database\n"
-        "• /schedulerstatus - Cek apakah scheduler monitoring aktif\n"
         "• /lihatlog 20 - Lihat 20 log terbaru\n\n"
         "**Analisis Serangan:**\n"
         "• /lihatattack 1h - Serangan 1 jam terakhir\n"
@@ -127,41 +124,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error cek status: {str(e)}")
 
-
-# Command: /schedulerstatus  ← BARU
-@restricted
-async def scheduler_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cek status scheduler monitoring"""
-    try:
-        status = get_scheduler_status()
-
-        next_run = status['next_run']
-        if next_run:
-            # Hitung berapa detik lagi
-            now = datetime.now(next_run.tzinfo)
-            delta = (next_run - now).total_seconds()
-            next_run_str = f"{next_run.strftime('%H:%M:%S')} (~{int(delta)}s lagi)"
-        else:
-            next_run_str = "Tidak diketahui"
-
-        msg = (
-            f"⏰ *Scheduler Status*\n\n"
-            f"{'✅ Aktif' if status['running'] else '❌ Tidak Aktif'}\n\n"
-            f"📌 Jobs aktif: `{status['jobs']}`\n"
-            f"⏱ Interval: `{status['interval_seconds']}s "
-            f"({status['interval_seconds'] // 60} menit)`\n"
-            f"🕐 Next run: `{next_run_str}`\n"
-            f"📤 Telegram: {'✅ Terdaftar' if status['telegram_ready'] else '⚠️ Belum terdaftar'}\n"
-        )
-
-        await update.message.reply_text(msg, parse_mode='Markdown')
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error cek scheduler: {str(e)}")
-        logger.error(f"Error in scheduler_status_command: {e}")
-
-
 # Command: /lihatlog
+
+
 @restricted
 async def lihatlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lihat log terbaru dari Elasticsearch"""
@@ -194,7 +159,6 @@ async def lihatlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error mengambil log: {str(e)}")
         logger.error(f"Error in lihatlog: {e}", exc_info=True)
 
-
 @restricted
 async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lihat ringkasan serangan"""
@@ -224,32 +188,20 @@ async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         es = ElasticConnector()
         analyzer = AttackAnalyzer(es)
         
+        # Ambil logs asli untuk informasi hostname
+        original_logs = es.get_recent_logs(minutes=minutes, size=10000)
+        
         # Deteksi serangan
         attacks = analyzer.analyze_period(minutes=minutes)
         
-        # Simpan ke database (HAPUS field hostname sebelum simpan)
+        # Simpan ke database
         db = DatabaseManager()
         if attacks:
-            db_attacks = []
-            for attack in attacks:
-                db_attack = {
-                    'timestamp': attack['timestamp'],
-                    'attack_type': attack['attack_type'],
-                    'src_ip': attack['src_ip'],
-                    'dst_ip': attack.get('dst_ip'),
-                    'src_port': attack.get('src_port'),
-                    'dst_port': attack.get('dst_port'),
-                    'protocol': attack.get('protocol', 'tcp'),
-                    'severity': attack['severity'],
-                    'count': attack['count'],
-                    'raw_data': attack.get('raw_data', '')
-                }
-                db_attacks.append(db_attack)
-            db.save_attack_logs_bulk(db_attacks)
+            db.save_attack_logs_bulk(attacks)
         
-        # Format response
+        # Format response dengan original_logs untuk hostname
         from utils.formatters import format_attack_summary
-        response = format_attack_summary(attacks, periode)
+        response = format_attack_summary(attacks, periode, original_logs)
         
         keyboard = [
             [
@@ -265,6 +217,8 @@ async def lihatattack_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await msg.edit_text(f"❌ Error analisis: {str(e)}")
         logger.error(f"Error in lihatattack: {e}", exc_info=True)
+# Command: /topattackers
+
 
 @restricted
 async def topattackers_command(
