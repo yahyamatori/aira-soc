@@ -275,14 +275,9 @@ class AttackAnalyzer:
                      self._extract_ip(log, 'dst') or \
                      self._extract_ip(log, 'host.ip')
 
-            # Ekstrak port - enhanced with HTTP/HTTPS detection
-            # src_port dihapus karena tidak tersedia di nginx logs
-            
-            # Deteksi dst_port dari HTTP/HTTPS dalam message
-            dst_port = log.get('destination.port') or log.get('dst_port') or log.get('server.port') or self._extract_port(message, 'dst')
-            if not dst_port:
-                # Deteksi dari HTTP/HTTPS protocol dalam message
-                dst_port = self._detect_http_port(message, log_str_original)
+# Deteksi dst_port - Coba HTTP/HTTPS dulu sebelum regex pattern
+            # Karena nginx logs tidak ada port, kita default ke 80 (HTTP)
+            dst_port = self._detect_http_port(message, log_str_original)
 
             # Deteksi tipe serangan
             attack_type, severity = self._detect_attack_type(log_str)
