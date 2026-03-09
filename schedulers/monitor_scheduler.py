@@ -95,7 +95,6 @@ async def check_attacks_job():
                     'attack_type': attack.get('attack_type'),
                     'src_ip': attack.get('src_ip'),
                     'dst_ip': attack.get('dst_ip'),
-                    'src_port': attack.get('src_port'),
                     'dst_port': attack.get('dst_port'),
                     'protocol': attack.get('protocol', 'tcp'),
                     'severity': attack.get('severity', 'medium'),
@@ -185,3 +184,4 @@ def get_scheduler_status() -> dict:
         'telegram_ready': _telegram_app is not None,
         'interval_seconds': MONITOR_INTERVAL,
     }
+

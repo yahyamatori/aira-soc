@@ -251,6 +251,7 @@ class AttackAnalyzer:
             
             # Combine all text fields for detection
             log_str = str(log).lower()
+            log_str_original = str(log)  # Original case for protocol detection
             
             timestamp = log.get('@timestamp') or log.get('timestamp') or log.get('time') or datetime.now().isoformat()
 
@@ -274,9 +275,14 @@ class AttackAnalyzer:
                      self._extract_ip(log, 'dst') or \
                      self._extract_ip(log, 'host.ip')
 
-            # Ekstrak port
-            src_port = log.get('source.port') or log.get('src_port') or log.get('src_port') or self._extract_port(message, 'src')
+            # Ekstrak port - enhanced with HTTP/HTTPS detection
+            # src_port dihapus karena tidak tersedia di nginx logs
+            
+            # Deteksi dst_port dari HTTP/HTTPS dalam message
             dst_port = log.get('destination.port') or log.get('dst_port') or log.get('server.port') or self._extract_port(message, 'dst')
+            if not dst_port:
+                # Deteksi dari HTTP/HTTPS protocol dalam message
+                dst_port = self._detect_http_port(message, log_str_original)
 
             # Deteksi tipe serangan
             attack_type, severity = self._detect_attack_type(log_str)
@@ -321,7 +327,6 @@ class AttackAnalyzer:
                 'attack_type': attack_type,
                 'src_ip': src_ip,
                 'dst_ip': dst_ip,
-                'src_port': src_port,
                 'dst_port': dst_port,
                 'protocol': log.get('network.protocol') or log.get('protocol') or 'tcp',
                 'severity': severity,
@@ -384,6 +389,50 @@ class AttackAnalyzer:
                     return port
 
         return None
+
+    def _detect_http_port(self, message_lower: str, message_original: str) -> int:
+        """
+        Deteksi dst_port dari HTTP/HTTPS dalam log message.
+        
+        Mengembalikan:
+        - 443 untuk HTTPS
+        - 80 untuk HTTP
+        - None jika tidak terdeteksi
+        """
+        # Check for HTTPS indicators
+        https_indicators = [
+            'https://',
+            ' ssl',
+            ' tls',
+            '443',
+            ' https ',
+            '"https',
+        ]
+        
+        http_indicators = [
+            'http://',
+            ' http ',
+            '"http',
+        ]
+        
+        # Check in original message (case sensitive for URL protocols)
+        for indicator in https_indicators:
+            if indicator in message_original:
+                if DEBUG_MODE:
+                    logger.debug(f"Detected HTTPS, setting dst_port=443")
+                return 443
+        
+        for indicator in http_indicators:
+            if indicator in message_original:
+                if DEBUG_MODE:
+                    logger.debug(f"Detected HTTP, setting dst_port=80")
+                return 80
+        
+        # Default: assume HTTP (port 80) for nginx access logs
+        # This is a safe default since most web servers handle HTTP
+        if DEBUG_MODE:
+            logger.debug(f"No explicit protocol detected, defaulting to HTTP (port 80)")
+        return 80
 
     def _detect_attack_type(self, log_text: str) -> tuple:
         """Deteksi tipe serangan dari log"""
