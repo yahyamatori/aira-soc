@@ -45,6 +45,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - Menampilkan pesan ini\n"
         "/help - Bantuan dan daftar command\n"
         "/status - Cek status sistem\n"
+        "/schedulerstatus - Cek status scheduler monitoring\n"
         "/lihatlog [jumlah] - Lihat log terbaru (contoh: /lihatlog 10)\n"
         "/lihatattack [periode] - Lihat ringkasan serangan\n"
         "   • /lihatattack 1h - 1 jam terakhir\n"
@@ -54,7 +55,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/realtime - Aktifkan mode realtime (mendapat update setiap menit)\n"
         "/stop - Matikan mode realtime\n"
         "/setthreshold [type] [value] - Set threshold alert\n"
-        "/thresholds - Lihat threshold saat ini\n"
+        "/thresholds - Lihat threshold saat ini\n\n"
+        "🔄 **Catatan:** Scheduler otomatis berjalan setiap 5 menit\n"
+        "   dan menyimpan data ke database tanpa perlu command!"
     )
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
@@ -68,6 +71,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔍 **Bantuan Penggunaan**\n\n"
         "**Perintah Dasar:**\n"
         "• /status - Cek koneksi ke Elasticsearch dan Database\n"
+        "• /schedulerstatus - Cek status scheduler monitoring\n"
         "• /lihatlog 20 - Lihat 20 log terbaru\n\n"
         "**Analisis Serangan:**\n"
         "• /lihatattack 1h - Serangan 1 jam terakhir\n"
@@ -79,7 +83,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /setthreshold port_scan 30 - Set threshold port scan\n\n"
         "**Mode Realtime:**\n"
         "• /realtime - Terima update setiap menit\n"
-        "• /stop - Berhenti menerima update\n"
+        "• /stop - Berhenti menerima update\n\n"
+        "**Catatan:** Scheduler otomatis menyimpan data ke attack_logs\n"
+        "setiap 5 menit tanpa perlu command!"
     )
     await update.message.reply_text(help_msg, parse_mode='Markdown')
 
@@ -319,15 +325,31 @@ async def scheduler_status_command(update: Update, context: ContextTypes.DEFAULT
         # Format next run time
         next_run = "N/A"
         if status.get('next_run'):
-            next_run = status['next_run'].strftime('%Y-%m-%d %H:%M:%S')
+            next_run_time = status['next_run']
+            next_run = next_run_time.strftime('%H:%M:%S')
+        
+        # Determine running status
+        is_running = status.get('running', False)
+        running_emoji = "✅" if is_running else "❌"
+        running_text = "Aktif" if is_running else "Tidak Aktif"
+        
+        # Determine telegram status
+        telegram_ready = status.get('telegram_ready', False)
+        telegram_emoji = "✅" if telegram_ready else "⚠️"
+        telegram_text = "Terverifikasi" if telegram_ready else "Belum Terdaftar"
+        
+        # Get interval
+        interval = status.get('interval_seconds', 0)
+        interval_text = f"{interval}s ({interval//60} menit)"
         
         status_msg = (
-            f"⏰ **Scheduler Status**\n\n"
-            f"• **Running:** {'✅ Yes' if status.get('running') else '❌ No'}\n"
-            f"• **Jobs:** {status.get('jobs', 0)}\n"
-            f"• **Interval:** {status.get('interval_seconds', 0)}s ({status.get('interval_seconds', 0)//60} min)\n"
-            f"• **Next Run:** {next_run}\n"
-            f"• **Telegram Ready:** {'✅ Yes' if status.get('telegram_ready') else '❌ No'}\n"
+            f"📊 **Scheduler Status**\n\n"
+            f"{running_emoji} **Status:** {running_text}\n\n"
+            f"📌 **Jobs aktif:** {status.get('jobs', 0)}\n"
+            f"⏱ **Interval:** {interval_text}\n"
+            f"🕐 **Next run:** {next_run}\n"
+            f"📤 **Telegram:** {telegram_emoji} {telegram_text}\n\n"
+            f"🔄 _Scheduler otomatis menyimpan data ke attack_logs setiap {interval//60} menit_"
         )
         
         await update.message.reply_text(status_msg, parse_mode='Markdown')
