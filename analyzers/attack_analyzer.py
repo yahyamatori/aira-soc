@@ -222,7 +222,8 @@ class AttackAnalyzer:
                     'severity': att.severity,
                     'count': att.count,
                     'raw_data': att.raw_data,
-                    'hostname': getattr(att, 'hostname', 'Database Test')
+                    'hostname': getattr(att, 'hostname', 'Database Test'),
+                    'host_ip': getattr(att, 'host_ip', None)
                 }
                 attacks.append(attack_data)
             

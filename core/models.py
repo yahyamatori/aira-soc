@@ -45,6 +45,7 @@ class AttackLog(Base):
     count = Column(Integer, nullable=False, default=1)
     raw_data = Column(Text, nullable=True)  # JSON string dari log asli
     hostname = Column(String(255), nullable=True)  # Hostname server yang diserang
+    host_ip = Column(String(45), nullable=True)  # IP server yang diserang
     created_at = Column(DateTime, server_default=func.now())
 
     # Composite indexes untuk query umum

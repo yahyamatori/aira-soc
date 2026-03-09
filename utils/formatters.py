@@ -148,10 +148,21 @@ def format_log_list(logs: List[Dict], limit: int = 5) -> str:
     return response
 
 
-def format_attack_summary(attacks: List[Dict[str, Any]], periode: str) -> str:
+def format_attack_summary(attacks: List[Dict[str, Any]], periode: str, original_logs: List[Dict] = None) -> str:
     """Format ringkasan serangan dengan informasi semua server"""
     if not attacks:
         return f"📭 Tidak ada serangan terdeteksi dalam {periode} terakhir."
+
+    # Build a lookup for original logs to get hostname/host_ip
+    log_lookup = {}
+    if original_logs:
+        for log in original_logs:
+            # Use src_ip + timestamp as key for matching
+            src_ip = log.get('source.ip') or log.get('client.ip') or log.get('src_ip')
+            timestamp = log.get('@timestamp') or log.get('timestamp')
+            if src_ip and timestamp:
+                key = f"{src_ip}_{str(timestamp)[:19]}"
+                log_lookup[key] = log
 
     total_attacks = len(attacks)
 
