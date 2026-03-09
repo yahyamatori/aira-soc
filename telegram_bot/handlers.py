@@ -305,6 +305,37 @@ async def setthreshold_command(
     else:
         await update.message.reply_text(f"❌ Threshold type `{alert_type}` tidak ditemukan", parse_mode='Markdown')
 
+# Command: /schedulerstatus
+
+
+@restricted
+async def scheduler_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cek status scheduler monitoring"""
+    from schedulers.monitor_scheduler import get_scheduler_status
+    
+    try:
+        status = get_scheduler_status()
+        
+        # Format next run time
+        next_run = "N/A"
+        if status.get('next_run'):
+            next_run = status['next_run'].strftime('%Y-%m-%d %H:%M:%S')
+        
+        status_msg = (
+            f"⏰ **Scheduler Status**\n\n"
+            f"• **Running:** {'✅ Yes' if status.get('running') else '❌ No'}\n"
+            f"• **Jobs:** {status.get('jobs', 0)}\n"
+            f"• **Interval:** {status.get('interval_seconds', 0)}s ({status.get('interval_seconds', 0)//60} min)\n"
+            f"• **Next Run:** {next_run}\n"
+            f"• **Telegram Ready:** {'✅ Yes' if status.get('telegram_ready') else '❌ No'}\n"
+        )
+        
+        await update.message.reply_text(status_msg, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+        logger.error(f"Error in scheduler_status: {e}", exc_info=True)
+
 # Handler untuk callback dari inline keyboard
 
 
