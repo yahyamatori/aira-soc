@@ -342,17 +342,18 @@ async def scheduler_status_command(update: Update, context: ContextTypes.DEFAULT
         interval = status.get('interval_seconds', 0)
         interval_text = f"{interval}s ({interval//60} menit)"
         
+        # Use plain text without Markdown to avoid parsing issues
         status_msg = (
-            f"📊 **Scheduler Status**\n\n"
-            f"{running_emoji} **Status:** {running_text}\n\n"
-            f"📌 **Jobs aktif:** {status.get('jobs', 0)}\n"
-            f"⏱ **Interval:** {interval_text}\n"
-            f"🕐 **Next run:** {next_run}\n"
-            f"📤 **Telegram:** {telegram_emoji} {telegram_text}\n\n"
-            f"🔄 _Scheduler otomatis menyimpan data ke attack_logs setiap {interval//60} menit_"
+            f"📊 Scheduler Status\n\n"
+            f"{running_emoji} Status: {running_text}\n\n"
+            f"📌 Jobs aktif: {status.get('jobs', 0)}\n"
+            f"⏱ Interval: {interval_text}\n"
+            f"🕐 Next run: {next_run}\n"
+            f"📤 Telegram: {telegram_emoji} {telegram_text}\n\n"
+            f"🔄 Scheduler otomatis menyimpan data ke attack_logs setiap {interval//60} menit"
         )
         
-        await update.message.reply_text(status_msg, parse_mode='Markdown')
+        await update.message.reply_text(status_msg)
         
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
